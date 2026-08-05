@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "adapter": {
     "id": "nodewarden",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "upstream": {
     "repository": "shuaiplus/nodewarden",

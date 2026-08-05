@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "adapter": {
     "id": "open-connector",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "upstream": {
     "repository": "oomol-lab/open-connector",

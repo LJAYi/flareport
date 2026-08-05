@@ -77,6 +77,42 @@ async function candidateHash(metadata, base = candidateRoot) {
   return hash.digest("hex");
 }
 
+const wranglerIdentityFields = {
+  d1_databases: ["database_id", "preview_database_id", "database_name"],
+  r2_buckets: ["bucket_name", "preview_bucket_name", "jurisdiction"],
+  kv_namespaces: ["id", "preview_id"],
+  vectorize: ["index_name"],
+  hyperdrive: ["id"],
+  services: ["service", "environment"],
+};
+
+export function mergeWranglerResourceIdentity(current, candidate) {
+  const merged = structuredClone(candidate);
+  for (const [collection, fields] of Object.entries(wranglerIdentityFields)) {
+    if (!Array.isArray(merged[collection]) || !Array.isArray(current[collection])) continue;
+    for (const binding of merged[collection]) {
+      const existing = current[collection].find((item) => item?.binding === binding?.binding);
+      if (!existing) continue;
+      for (const field of fields) {
+        if (Object.hasOwn(existing, field)) binding[field] = existing[field];
+      }
+    }
+  }
+  return merged;
+}
+
+async function applyUserOwnedState(nextMetadata) {
+  nextMetadata.management.autoMergeAllowed =
+    localMetadata.management.autoMergeAllowed === true && nextMetadata.management.autoMergeAllowed === true;
+  await writeFile(resolve(candidateRoot, "flareport.json"), JSON.stringify(nextMetadata, null, 2) + "\n");
+  if (nextMetadata.managedFiles.includes("wrangler.jsonc") && localMetadata.managedFiles.includes("wrangler.jsonc")) {
+    const current = JSON.parse(await readFile(resolve(root, "wrangler.jsonc"), "utf8"));
+    const candidate = JSON.parse(await readFile(resolve(candidateRoot, "wrangler.jsonc"), "utf8"));
+    const merged = mergeWranglerResourceIdentity(current, candidate);
+    await writeFile(resolve(candidateRoot, "wrangler.jsonc"), JSON.stringify(merged, null, 2) + "\n");
+  }
+}
+
 async function output(name, value) {
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
   console.log(`${name}=${value}`);
@@ -89,13 +125,6 @@ async function check() {
   const nextMetadata = validateMetadata(JSON.parse(new TextDecoder().decode(await rawAt(sourceCommit, "flareport.json"))));
   const currentKey = `${localMetadata.adapter.version}:${localMetadata.upstream.commit}`;
   const nextKey = `${nextMetadata.adapter.version}:${nextMetadata.upstream.commit}`;
-  const updateAvailable = currentKey !== nextKey;
-  await output("update_available", String(updateAvailable));
-  if (!updateAvailable) {
-    console.log(`Already current at ${nextKey}`);
-    return;
-  }
-
   const stagingRoot = resolve(candidateRoot, "..");
   await rm(stagingRoot, { recursive: true, force: true });
   await mkdir(candidateRoot, { recursive: true });
@@ -104,13 +133,23 @@ async function check() {
     await mkdir(resolve(target, ".."), { recursive: true });
     await writeFile(target, await rawAt(sourceCommit, path));
   }
+  await applyUserOwnedState(nextMetadata);
   const hash = await candidateHash(nextMetadata);
+  const currentHash = await candidateHash(localMetadata, root);
+  const updateAvailable = currentHash !== hash;
+  await output("update_available", String(updateAvailable));
+  if (!updateAvailable) {
+    await rm(stagingRoot, { recursive: true, force: true });
+    console.log(`Managed tree is already current at ${nextKey}`);
+    return;
+  }
   await writeFile(resolve(stagingRoot, "plan.json"), JSON.stringify({
     schemaVersion: 1,
     sourceRepository,
     sourceCommit,
     currentKey,
     nextKey,
+    currentHash,
     candidateHash: hash,
   }, null, 2) + "\n");
   await output("candidate_hash", hash);
@@ -169,12 +208,7 @@ async function apply() {
     throw new Error("Candidate artifact hash does not match the read-only validation job");
   }
 
-  // Central metadata is a ceiling only: an update can revoke permission but cannot
-  // restore it. The user's opt-in lives outside managedFiles and is never overwritten.
-  nextMetadata.management.autoMergeAllowed =
-    localMetadata.management.autoMergeAllowed === true && nextMetadata.management.autoMergeAllowed === true;
-  await writeFile(resolve(candidateRoot, "flareport.json"), JSON.stringify(nextMetadata, null, 2) + "\n");
-  const appliedCandidateHash = await candidateHash(nextMetadata);
+  const appliedCandidateHash = sealedCandidateHash;
   const userPolicy = await localUserPolicy();
 
   const repository = process.env.GITHUB_REPOSITORY;

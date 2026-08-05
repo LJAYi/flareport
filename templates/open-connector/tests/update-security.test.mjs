@@ -4,7 +4,7 @@ import test from "node:test";
 
 const originalDirectory = process.cwd();
 process.chdir(resolve(import.meta.dirname, ".."));
-const { assertOwnedUpdateBranch } = await import("../.github/scripts/flareport-update.mjs");
+const { assertOwnedUpdateBranch, mergeWranglerResourceIdentity } = await import("../.github/scripts/flareport-update.mjs");
 process.chdir(originalDirectory);
 
 const repository = "owner/deployment";
@@ -58,4 +58,20 @@ test("fails closed on branch squatting or collaborator commits", () => {
   );
   assert.throws(() => verify({ files: [{ filename: "user-owned.txt" }] }), /outside the managed template set/);
   assert.throws(() => verify({ existingCommit: { ...existingCommit, author: { name: "collaborator" } } }), /not authored by/);
+});
+
+test("preserves user-owned Cloudflare resource identities across template updates", () => {
+  const current = {
+    d1_databases: [{ binding: "DB", database_name: "user-db", database_id: "user-d1-id" }],
+    r2_buckets: [{ binding: "TRANSIT_FILES", bucket_name: "user-bucket" }],
+  };
+  const candidate = {
+    d1_databases: [{ binding: "DB", database_name: "catalog-db", migrations_dir: "migrations" }],
+    r2_buckets: [{ binding: "TRANSIT_FILES", bucket_name: "catalog-bucket" }],
+  };
+  assert.deepEqual(mergeWranglerResourceIdentity(current, candidate), {
+    d1_databases: [{ binding: "DB", database_name: "user-db", database_id: "user-d1-id", migrations_dir: "migrations" }],
+    r2_buckets: [{ binding: "TRANSIT_FILES", bucket_name: "user-bucket" }],
+  });
+  assert.equal(candidate.d1_databases[0].database_id, undefined, "candidate input must not be mutated");
 });
