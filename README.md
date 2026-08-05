@@ -26,7 +26,7 @@ Generated repositories also include a GitHub Actions fallback for users who do n
 
 Repositories choose `manual`, `auto`, or `staged-auto`. Automatic merging is opt-in, cannot bypass required checks, and may be paused globally when a rollout exceeds its failure threshold. Sensitive projects should default to manual updates.
 
-The repository Actions fallback implements guarded native GitHub auto-merge after verifying the user's required branch checks. The GitHub App MVP deliberately stops after creating a trusted PR: its auto-merge hook remains disabled until a signed check/deployment webhook can bind successful checks to the exact PR head SHA.
+After validating the sealed candidate, the repository Actions fallback publishes an accurate Check Run on that candidate commit. If the user opted into automatic merging, it then requests GitHub native auto-merge; GitHub Branch Protection—not the updater—enforces the repository's configured required checks. The GitHub App MVP deliberately stops after creating a trusted PR: its auto-merge hook remains disabled until a signed check/deployment webhook can bind a trustworthy Check Run to the exact PR head SHA.
 
 ## Development
 

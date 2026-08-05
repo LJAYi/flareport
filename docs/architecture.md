@@ -17,12 +17,12 @@ Each application gets a separate deployment repository by default. A future flee
 ## Update modes
 
 - `manual`: create a pull request and wait for the user.
-- `auto`: create a pull request automatically; the repository Actions path may arm native auto-merge only after verifying user-owned required checks.
+- `auto`: create a pull request automatically; after publishing an accurate Check Run for the validated candidate commit, the repository Actions path may request native auto-merge. GitHub Branch Protection, not the updater, enforces user-owned required checks.
 - `staged-auto`: additionally wait for the selected rollout channel to open.
 
 The generated repository contains a fallback update workflow. When the optional `flareport[bot]` GitHub App is installed, the App becomes the scheduled coordinator and the repository workflow remains available for manual recovery. Both paths use deterministic branch names and safely reuse completed dispatches. They fail closed on unknown occupied branches; an interrupted App dispatch that created a ref but not a PR may require deletion of that orphaned update branch before retrying.
 
-The App MVP does not arm auto-merge. That step is reserved for a signed check/deployment webhook that verifies the exact PR head and configured required checks. This keeps cross-repository rollout coordination available without treating an administrative status report as proof that a deployment passed.
+The App MVP does not arm auto-merge. That step is reserved for a signed check/deployment webhook that binds a trustworthy Check Run to the exact PR head; GitHub native auto-merge and Branch Protection then enforce the configured required checks. This keeps cross-repository rollout coordination available without treating an administrative status report as proof that a deployment passed.
 
 ## Staged rollout
 

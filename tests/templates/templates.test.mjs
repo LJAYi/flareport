@@ -95,6 +95,10 @@ for (const id of ids) {
     assert.match(readme, /deploy\.workers\.cloudflare\.com\/button/);
     assert.ok(readme.includes(expectedUrl));
     assert.match(readme, /SHA-256/);
+    assert.match(readme, /publishes a successful `Validate deployment` Check Run on the exact candidate commit/);
+    assert.match(readme, /does not read or verify Branch Protection/);
+    assert.match(readme, /GitHub Branch Protection and native auto-merge enforce/);
+    assert.doesNotMatch(readme, /updater verifies (?:the |those )?(?:branch )?protections?/i);
 
     assert.match(workflow, /workflow_dispatch:/);
     assert.match(workflow, /schedule:/);
