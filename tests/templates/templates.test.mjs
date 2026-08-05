@@ -24,6 +24,7 @@ for (const id of ids) {
     const required = [
       ".dev.vars.example",
       ".github/scripts/flareport-update.mjs",
+      ".github/workflows/ci.yml",
       ".github/workflows/flareport-update.yml",
       ".gitignore",
       "README.md",
@@ -40,7 +41,7 @@ for (const id of ids) {
     ];
     await Promise.all(required.map((path) => access(resolve(root, path))));
 
-    const [metadata, lock, adapter, adapterLock, packageJson, wrangler, readme, workflow, updater, gitignore, vars] =
+    const [metadata, lock, adapter, adapterLock, packageJson, wrangler, readme, workflow, validationWorkflow, updater, gitignore, vars] =
       await Promise.all([
         readJson(resolve(root, "flareport.json")),
         readJson(resolve(root, "upstream.lock.json")),
@@ -50,6 +51,7 @@ for (const id of ids) {
         readFile(resolve(root, "wrangler.jsonc"), "utf8").then(JSON.parse),
         readFile(resolve(root, "README.md"), "utf8"),
         readFile(resolve(root, ".github/workflows/flareport-update.yml"), "utf8"),
+        readFile(resolve(root, ".github/workflows/ci.yml"), "utf8"),
         readFile(resolve(root, ".github/scripts/flareport-update.mjs"), "utf8"),
         readFile(resolve(root, ".gitignore"), "utf8"),
         readFile(resolve(root, ".dev.vars.example"), "utf8"),
@@ -105,6 +107,12 @@ for (const id of ids) {
     assert.ok(workflow.indexOf("Seal candidate") < workflow.indexOf("build untrusted pinned upstream"));
     assert.ok(workflow.indexOf("propose:") < workflow.indexOf("GITHUB_TOKEN:"));
     assert.doesNotMatch(workflow, /pull_request(?:_target)?:/);
+    assert.match(validationWorkflow, /pull_request:/);
+    assert.match(validationWorkflow, /contents: read/);
+    assert.match(validationWorkflow, /persist-credentials: false/);
+    assert.match(validationWorkflow, /npm run build/);
+    assert.match(validationWorkflow, /npm run validate:cloudflare/);
+    assert.doesNotMatch(validationWorkflow, /contents: write|pull-requests: write|secrets\.GITHUB_TOKEN/);
     assert.match(updater, /commits\/\$\{encodeURIComponent\(sourceRef\)\}/);
     assert.match(updater, /sourceCommit/);
     assert.match(updater, /Candidate artifact hash does not match/);
