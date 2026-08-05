@@ -121,8 +121,8 @@ for (const id of ids) {
     assert.match(updater, /Applied managed-tree SHA-256/);
     assert.match(updater, /\/check-runs/);
     assert.match(updater, /head_sha: commit\.sha/);
-    assert.match(updater, /branchProtectionRules/);
-    assert.match(updater, /requiredStatusCheckContexts/);
+    assert.match(updater, /enablePullRequestAutoMerge/);
+    assert.match(updater, /GitHub will enforce the repository's branch protection rules/);
     assert.match(updater, /flareport\.user\.json/);
     assert.match(updater, /user-owned and cannot be centrally managed/);
     assert.match(updater, /Existing update PR lacks the FlarePort ownership marker/);

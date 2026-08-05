@@ -311,28 +311,8 @@ async function apply() {
   console.log(`Published the validated Check Run for ${commit.sha}.`);
 
   if (userPolicy.autoMerge && nextMetadata.management.autoMergeAllowed) {
-    let protection;
-    try {
-      const [repositoryOwner, repositoryName] = repository.split("/");
-      protection = await api("/graphql", {
-        method: "POST",
-        body: JSON.stringify({
-          query: "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){branchProtectionRules(first:100){nodes{pattern requiredStatusCheckContexts}}}}",
-          variables: { owner: repositoryOwner, name: repositoryName },
-        }),
-      }, true);
-    } catch (error) {
-      console.warn(`Auto-merge skipped: required-check protection could not be verified (${error.message})`);
-      return;
-    }
-    if (protection.errors?.length) {
-      console.warn(`Auto-merge skipped: branch-protection query failed (${protection.errors[0].message})`);
-      return;
-    }
-    const exactRule = protection.data?.repository?.branchProtectionRules?.nodes?.find((rule) => rule.pattern === base);
-    const contexts = new Set(exactRule?.requiredStatusCheckContexts ?? []);
-    if (userPolicy.requiredChecks.length === 0 || userPolicy.requiredChecks.some((check) => !contexts.has(check))) {
-      console.warn("Auto-merge skipped: every locally configured required check must be enforced by branch protection");
+    if (userPolicy.requiredChecks.length === 0) {
+      console.warn("Auto-merge skipped: the local policy does not name any required check");
       return;
     }
     await api("/graphql", {
@@ -342,7 +322,7 @@ async function apply() {
         variables: { id: pull.node_id },
       }),
     }, true);
-    console.log("Enabled auto-merge under the user's local policy and verified branch protection.");
+    console.log("Requested native auto-merge; GitHub will enforce the repository's branch protection rules.");
   }
 }
 
