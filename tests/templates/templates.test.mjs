@@ -132,6 +132,7 @@ for (const id of ids) {
       await access(resolve(root, path));
     }
     assert.equal(metadata.managedFiles.includes("flareport.user.json"), false);
+    assert.equal(metadata.managedFiles.some((path) => path.startsWith(".github/workflows/")), false);
     assert.equal(metadata.management.autoMergeAllowed, true);
     assert.match(vars, /replace-with-/);
     assert.doesNotMatch(vars, /(?:sk-|ghp_|github_pat_)[A-Za-z0-9_]+/);

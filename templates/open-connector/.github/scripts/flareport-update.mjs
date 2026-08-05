@@ -31,6 +31,9 @@ function validateMetadata(value) {
   if (value.managedFiles.includes("flareport.user.json")) {
     throw new Error("flareport.user.json is user-owned and cannot be centrally managed");
   }
+  if (value.managedFiles.some((path) => path.startsWith(".github/workflows/"))) {
+    throw new Error("GitHub workflows are repository-owned and cannot be centrally managed");
+  }
   for (const path of value.managedFiles) safePath(candidateRoot, path);
   if (typeof value.management?.autoMergeAllowed !== "boolean") throw new Error("management.autoMergeAllowed must be boolean");
   return value;

@@ -4,7 +4,7 @@
   "id": "open-connector",
   "name": "OpenConnector",
   "description": "Unofficial Cloudflare deployment adapter for oomol-lab/open-connector.",
-  "adapterVersion": "0.1.2",
+  "adapterVersion": "0.1.3",
   "upstream": {
     "repository": "oomol-lab/open-connector",
     "release": "v1.3.4",
