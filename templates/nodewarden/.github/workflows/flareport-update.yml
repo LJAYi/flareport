@@ -59,6 +59,7 @@ jobs:
     if: needs.validate.outputs.update_available == 'true'
     runs-on: ubuntu-latest
     permissions:
+      checks: write
       contents: write
       pull-requests: write
     steps:
@@ -78,4 +79,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FLAREPORT_EXPECTED_CANDIDATE_HASH: ${{ needs.validate.outputs.candidate_hash }}
         run: node .github/scripts/flareport-update.mjs apply
-

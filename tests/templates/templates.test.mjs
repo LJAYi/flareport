@@ -99,6 +99,7 @@ for (const id of ids) {
     assert.match(workflow, /workflow_dispatch:/);
     assert.match(workflow, /schedule:/);
     assert.match(workflow, /contents: write/);
+    assert.match(workflow, /checks: write/);
     assert.match(workflow, /pull-requests: write/);
     assert.match(workflow, /secrets\.GITHUB_TOKEN/);
     assert.match(workflow, /persist-credentials: false/g);
@@ -118,6 +119,8 @@ for (const id of ids) {
     assert.match(updater, /Candidate artifact hash does not match/);
     assert.match(updater, /Sealed candidate SHA-256/);
     assert.match(updater, /Applied managed-tree SHA-256/);
+    assert.match(updater, /\/check-runs/);
+    assert.match(updater, /head_sha: commit\.sha/);
     assert.match(updater, /flareport\.user\.json/);
     assert.match(updater, /user-owned and cannot be centrally managed/);
     assert.match(updater, /Existing update PR lacks the FlarePort ownership marker/);

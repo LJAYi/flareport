@@ -1,7 +1,7 @@
 {
   "$schema": "../../schemas/upstream-lock.schema.json",
   "schemaVersion": 1,
-  "adapter": { "id": "nodewarden", "version": "0.1.3" },
+  "adapter": { "id": "nodewarden", "version": "0.1.4" },
   "upstream": {
     "repository": "shuaiplus/nodewarden",
     "release": "v1.8.0",

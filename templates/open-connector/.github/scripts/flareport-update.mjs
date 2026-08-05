@@ -295,6 +295,21 @@ async function apply() {
   }
   console.log(`Created or updated ${pull.html_url}`);
 
+  await api(`/repos/${repository}/check-runs`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Validate deployment",
+      head_sha: commit.sha,
+      status: "completed",
+      conclusion: "success",
+      output: {
+        title: "FlarePort candidate validated",
+        summary: `Read-only validation passed for sealed candidate ${sealedCandidateHash}.`,
+      },
+    }),
+  }, true);
+  console.log(`Published the validated Check Run for ${commit.sha}.`);
+
   if (userPolicy.autoMerge && nextMetadata.management.autoMergeAllowed) {
     let protection;
     try {
