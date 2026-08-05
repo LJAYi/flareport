@@ -10,6 +10,32 @@ const adapterRoot = resolve(repositoryRoot, "adapters");
 const ids = ["nodewarden", "open-connector"];
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 
+const officialActionPins = {
+  "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+  "actions/setup-node": "820762786026740c76f36085b0efc47a31fe5020",
+  "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+  "actions/download-artifact": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+};
+
+test("official actions use the reviewed Node 24-capable immutable releases", async () => {
+  const workflowFiles = [
+    resolve(repositoryRoot, ".github/workflows/ci.yml"),
+    ...ids.flatMap((id) => [
+      resolve(templateRoot, id, ".github/workflows/ci.yml"),
+      resolve(templateRoot, id, ".github/workflows/flareport-update.yml"),
+    ]),
+  ];
+  let references = 0;
+  for (const workflowFile of workflowFiles) {
+    const workflow = await readFile(workflowFile, "utf8");
+    for (const match of workflow.matchAll(/uses:\s+(actions\/(?:checkout|setup-node|upload-artifact|download-artifact))@([0-9a-f]{40})/g)) {
+      references += 1;
+      assert.equal(match[2], officialActionPins[match[1]], `${workflowFile} has a stale ${match[1]} pin`);
+    }
+  }
+  assert.ok(references >= 10, "expected all central and template workflow action references");
+});
+
 test("the catalog has exactly the two MVP templates", async () => {
   const directories = (await readdir(templateRoot, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
