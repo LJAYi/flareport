@@ -1,0 +1,36 @@
+{
+  "$schema": "../../schemas/adapter-manifest.schema.json",
+  "schemaVersion": 1,
+  "id": "open-connector",
+  "name": "OpenConnector",
+  "description": "Unofficial Cloudflare deployment adapter for oomol-lab/open-connector.",
+  "adapterVersion": "0.1.0",
+  "upstream": {
+    "repository": "oomol-lab/open-connector",
+    "release": "v1.3.4",
+    "commit": "ef9ef5b6cf1f8c15368f0a62fc2517780aebc12a",
+    "license": "Apache-2.0"
+  },
+  "cloudflare": {
+    "compatibilityDate": "2026-07-02",
+    "services": ["workers", "d1", "r2"],
+    "bindings": [
+      { "name": "DB", "type": "d1", "resourceName": "open-connector", "required": true },
+      { "name": "TRANSIT_FILES", "type": "r2", "resourceName": "open-connector-transit", "required": true }
+    ]
+  },
+  "inputs": [
+    { "name": "OOMOL_CONNECT_ADMIN_TOKEN", "type": "secret", "scope": "runtime", "required": true, "description": "Long random administrator token." },
+    { "name": "OOMOL_CONNECT_ENCRYPTION_KEY", "type": "secret", "scope": "runtime", "required": true, "description": "Long random key used to encrypt persisted credentials." }
+  ],
+  "updates": {
+    "mode": "manual",
+    "channel": "manual",
+    "source": "github-release",
+    "allowPrerelease": false
+  },
+  "generation": {
+    "overlayDirectory": "overlay",
+    "preserve": [".dev.vars", ".flareport/user.json"]
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flareport.dev/schemas/adapter-manifest.schema.json",
+  "title": "FlarePort Adapter Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "description", "adapterVersion", "upstream", "cloudflare", "inputs", "updates"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "adapterVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$" },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "release", "commit", "license"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "release": { "type": "string", "minLength": 1, "not": { "enum": ["latest", "main", "master", "HEAD"] } },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "sourceSubdirectory": { "$ref": "#/$defs/safePath" },
+        "license": { "type": "string", "minLength": 1 }
+      }
+    },
+    "cloudflare": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatibilityDate", "services", "bindings"],
+      "properties": {
+        "compatibilityDate": { "type": "string", "format": "date" },
+        "services": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["workers", "pages", "d1", "r2", "kv", "durable-objects", "queues", "vectorize", "hyperdrive"] }
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+              "type": { "enum": ["d1", "r2", "kv", "durable-object", "queue-producer", "queue-consumer", "vectorize", "hyperdrive", "service"] },
+              "resourceName": { "type": "string", "minLength": 1 },
+              "className": { "type": "string", "minLength": 1 },
+              "required": { "type": "boolean" }
+            },
+            "allOf": [{ "if": { "properties": { "type": { "const": "durable-object" } } }, "then": { "required": ["className"] } }]
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type", "scope", "required", "description"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "type": { "enum": ["secret", "text", "url", "email", "boolean", "number"] },
+          "scope": { "enum": ["runtime", "build"] },
+          "required": { "type": "boolean" },
+          "description": { "type": "string", "minLength": 1 },
+          "default": { "type": ["string", "boolean", "number"] }
+        },
+        "allOf": [{ "if": { "properties": { "type": { "const": "secret" } } }, "then": { "not": { "required": ["default"] } } }]
+      }
+    },
+    "updates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "channel", "source", "allowPrerelease"],
+      "properties": {
+        "mode": { "enum": ["manual", "auto", "staged-auto"] },
+        "channel": { "enum": ["manual", "canary", "early", "stable"] },
+        "source": { "enum": ["github-release", "github-tag"] },
+        "allowPrerelease": { "type": "boolean" }
+      },
+      "allOf": [
+        { "if": { "properties": { "mode": { "const": "manual" } } }, "then": { "properties": { "channel": { "const": "manual" } } } },
+        { "if": { "properties": { "mode": { "enum": ["auto", "staged-auto"] } } }, "then": { "properties": { "channel": { "enum": ["canary", "early", "stable"] } } } }
+      ]
+    },
+    "generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "overlayDirectory": { "$ref": "#/$defs/safePath" },
+        "preserve": { "type": "array", "items": { "$ref": "#/$defs/safePath" } }
+      }
+    }
+  },
+  "$defs": {
+    "safePath": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[^\\u0000]+$" }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@flareport/adapter-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test ../../tests/adapter-core/*.test.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

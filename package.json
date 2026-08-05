@@ -1,0 +1,25 @@
+{
+  "name": "flareport",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Community-maintained Cloudflare deployment adapters for open-source projects",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "flareport": "./src/cli.ts"
+  },
+  "scripts": {
+    "catalog": "node src/cli.ts catalog",
+    "validate": "node src/cli.ts validate",
+    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.0"
+  }
+}

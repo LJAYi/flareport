@@ -1,0 +1,37 @@
+{
+  "$schema": "../../schemas/adapter-manifest.schema.json",
+  "schemaVersion": 1,
+  "id": "nodewarden",
+  "name": "NodeWarden",
+  "description": "Community Cloudflare deployment adapter for shuaiplus/nodewarden.",
+  "adapterVersion": "0.1.0",
+  "upstream": {
+    "repository": "shuaiplus/nodewarden",
+    "release": "v1.8.0",
+    "commit": "39c076b2e1e78410fedbcdd1d4f89cac13b6810e",
+    "license": "LGPL-3.0-only"
+  },
+  "cloudflare": {
+    "compatibilityDate": "2024-01-01",
+    "services": ["workers", "d1", "r2", "durable-objects"],
+    "bindings": [
+      { "name": "DB", "type": "d1", "resourceName": "nodewarden-db", "required": true },
+      { "name": "ATTACHMENTS", "type": "r2", "resourceName": "nodewarden-attachments", "required": true },
+      { "name": "NOTIFICATIONS_HUB", "type": "durable-object", "className": "NotificationsHub", "required": true },
+      { "name": "BACKUP_TRANSFER_RUNNER", "type": "durable-object", "className": "BackupTransferRunner", "required": true }
+    ]
+  },
+  "inputs": [
+    { "name": "JWT_SECRET", "type": "secret", "scope": "runtime", "required": true, "description": "Random JWT signing secret of at least 32 characters." }
+  ],
+  "updates": {
+    "mode": "manual",
+    "channel": "manual",
+    "source": "github-release",
+    "allowPrerelease": false
+  },
+  "generation": {
+    "overlayDirectory": "overlay",
+    "preserve": [".dev.vars", ".flareport/user.json"]
+  }
+}

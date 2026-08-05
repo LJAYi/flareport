@@ -1,0 +1,2 @@
+# Required runtime secret. Replace locally, or enter it in Cloudflare during deployment.
+JWT_SECRET=replace-with-a-random-value-of-at-least-32-characters

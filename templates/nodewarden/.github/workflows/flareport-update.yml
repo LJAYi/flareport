@@ -1,0 +1,81 @@
+name: FlarePort update
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 20 * * 3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flareport-update
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate candidate
+    runs-on: ubuntu-latest
+    outputs:
+      update_available: ${{ steps.stage.outputs.update_available }}
+      candidate_hash: ${{ steps.stage.outputs.candidate_hash }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - id: stage
+        name: Stage candidate from a commit-pinned FlarePort tree
+        run: node .github/scripts/flareport-update.mjs check
+      - name: Seal candidate before running untrusted upstream code
+        if: steps.stage.outputs.update_available == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flareport-candidate
+          path: .flareport-update/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+      - name: Test candidate updater and archive verifier without write credentials
+        if: steps.stage.outputs.update_available == 'true'
+        run: npm test --prefix .flareport-update/candidate
+      - name: Fetch, install, and build untrusted pinned upstream without write credentials
+        if: steps.stage.outputs.update_available == 'true'
+        run: |
+          npm run prepare:upstream --prefix .flareport-update/candidate
+          npm run install:upstream --prefix .flareport-update/candidate
+          npm run build:upstream --prefix .flareport-update/candidate
+      - name: Wrangler dry-run without write credentials
+        if: steps.stage.outputs.update_available == 'true'
+        working-directory: .flareport-update/candidate
+        run: npx --yes wrangler@4.114.0 deploy --dry-run --outdir=.wrangler-dry-run
+
+  propose:
+    name: Propose update PR
+    needs: validate
+    if: needs.validate.outputs.update_available == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: flareport-candidate
+          path: .flareport-update
+      - name: Verify sealed artifact and create PR through the GitHub API
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FLAREPORT_EXPECTED_CANDIDATE_HASH: ${{ needs.validate.outputs.candidate_hash }}
+        run: node .github/scripts/flareport-update.mjs apply
+

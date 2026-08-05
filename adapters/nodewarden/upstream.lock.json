@@ -1,0 +1,13 @@
+{
+  "$schema": "../../schemas/upstream-lock.schema.json",
+  "schemaVersion": 1,
+  "adapter": { "id": "nodewarden", "version": "0.1.0" },
+  "upstream": {
+    "repository": "shuaiplus/nodewarden",
+    "release": "v1.8.0",
+    "commit": "39c076b2e1e78410fedbcdd1d4f89cac13b6810e",
+    "archiveUrl": "https://github.com/shuaiplus/nodewarden/archive/39c076b2e1e78410fedbcdd1d4f89cac13b6810e.tar.gz",
+    "archiveSha256": "ebfe34888e2fb13a93de9d66c9ffbd34fabafbd35cb2faeb0a12bf3a11d1ef2e"
+  },
+  "generatedAt": "2026-08-05T00:00:00.000Z"
+}

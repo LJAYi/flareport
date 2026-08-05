@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "adapter": {
+    "id": "nodewarden",
+    "version": "0.1.0"
+  },
+  "upstream": {
+    "repository": "shuaiplus/nodewarden",
+    "release": "v1.8.0",
+    "commit": "39c076b2e1e78410fedbcdd1d4f89cac13b6810e",
+    "archiveSha256": "ebfe34888e2fb13a93de9d66c9ffbd34fabafbd35cb2faeb0a12bf3a11d1ef2e"
+  },
+  "management": {
+    "mode": "github-actions",
+    "autoMergeAllowed": true,
+    "sourceRepository": "LJAYi/flareport",
+    "sourceRef": "main"
+  },
+  "managedFiles": [
+    ".dev.vars.example",
+    ".github/scripts/flareport-update.mjs",
+    ".github/workflows/flareport-update.yml",
+    ".gitignore",
+    "README.md",
+    "UPSTREAM.md",
+    "flareport.json",
+    "flareport.user.example.json",
+    "package.json",
+    "scripts/prepare-upstream.mjs",
+    "scripts/validate-cloudflare.mjs",
+    "tests/prepare-upstream.test.mjs",
+    "tests/update-security.test.mjs",
+    "upstream.lock.json",
+    "wrangler.jsonc"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "name": "flareport-open-connector-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test",
+    "prepare:upstream": "node scripts/prepare-upstream.mjs",
+    "install:upstream": "npm ci --prefix .flareport/upstream",
+    "build:upstream": "npm run generate:catalog --prefix .flareport/upstream && npm run build:web --prefix .flareport/upstream && node scripts/copy-catalog-assets.mjs",
+    "build": "npm run prepare:upstream && npm run install:upstream && npm run build:upstream",
+    "validate:cloudflare": "node scripts/validate-cloudflare.mjs",
+    "deploy": "npx --yes wrangler@4.114.0 d1 migrations apply DB --remote && npx --yes wrangler@4.114.0 deploy --minify"
+  },
+  "cloudflare": {
+    "bindings": {
+      "OOMOL_CONNECT_ADMIN_TOKEN": {
+        "description": "Required secret: a long random administrator token"
+      },
+      "OOMOL_CONNECT_ENCRYPTION_KEY": {
+        "description": "Required secret: a different long random encryption key"
+      },
+      "DB": {
+        "description": "D1 database provisioned for OpenConnector"
+      },
+      "TRANSIT_FILES": {
+        "description": "R2 bucket for temporary transit files"
+      }
+    }
+  }
+}

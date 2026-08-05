@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flareport.dev/schemas/upstream-lock.schema.json",
+  "title": "FlarePort Upstream Lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "adapter", "upstream", "generatedAt"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$" }
+      }
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "release", "commit", "archiveUrl", "archiveSha256"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "release": { "type": "string", "minLength": 1, "not": { "enum": ["latest", "main", "master", "HEAD"] } },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "archiveUrl": { "type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/archive/[0-9a-f]{40}\\.tar\\.gz$" },
+        "archiveSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "generatedAt": { "type": "string", "format": "date-time" }
+  }
+}

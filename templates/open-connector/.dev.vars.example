@@ -1,0 +1,3 @@
+# Required runtime secrets. Replace locally, or enter them in Cloudflare during deployment.
+OOMOL_CONNECT_ADMIN_TOKEN=replace-with-a-long-random-admin-token
+OOMOL_CONNECT_ENCRYPTION_KEY=replace-with-a-different-long-random-encryption-key

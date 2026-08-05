@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "adapter": {
+    "id": "open-connector",
+    "version": "0.1.0"
+  },
+  "upstream": {
+    "repository": "oomol-lab/open-connector",
+    "release": "v1.3.4",
+    "commit": "ef9ef5b6cf1f8c15368f0a62fc2517780aebc12a",
+    "archiveSha256": "fab962a043d989fa6d3231c4a5f733513eabd8516da377789d07ae6b2253535a"
+  },
+  "management": {
+    "mode": "github-actions",
+    "autoMergeAllowed": true,
+    "sourceRepository": "LJAYi/flareport",
+    "sourceRef": "main"
+  },
+  "managedFiles": [
+    ".dev.vars.example",
+    ".github/scripts/flareport-update.mjs",
+    ".github/workflows/flareport-update.yml",
+    ".gitignore",
+    "README.md",
+    "UPSTREAM.md",
+    "flareport.json",
+    "flareport.user.example.json",
+    "package.json",
+    "scripts/copy-catalog-assets.mjs",
+    "scripts/prepare-upstream.mjs",
+    "scripts/validate-cloudflare.mjs",
+    "tests/prepare-upstream.test.mjs",
+    "tests/update-security.test.mjs",
+    "upstream.lock.json",
+    "wrangler.jsonc"
+  ]
+}
