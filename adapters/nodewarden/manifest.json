@@ -4,7 +4,7 @@
   "id": "nodewarden",
   "name": "NodeWarden",
   "description": "Community Cloudflare deployment adapter for shuaiplus/nodewarden.",
-  "adapterVersion": "0.1.4",
+  "adapterVersion": "0.1.5",
   "upstream": {
     "repository": "shuaiplus/nodewarden",
     "release": "v1.8.0",

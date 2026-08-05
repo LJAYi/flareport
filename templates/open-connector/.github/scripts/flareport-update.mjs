@@ -313,12 +313,24 @@ async function apply() {
   if (userPolicy.autoMerge && nextMetadata.management.autoMergeAllowed) {
     let protection;
     try {
-      protection = await api(`/repos/${repository}/branches/${encodeURIComponent(base)}/protection/required_status_checks`, {}, true);
+      const [repositoryOwner, repositoryName] = repository.split("/");
+      protection = await api("/graphql", {
+        method: "POST",
+        body: JSON.stringify({
+          query: "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){branchProtectionRules(first:100){nodes{pattern requiredStatusCheckContexts}}}}",
+          variables: { owner: repositoryOwner, name: repositoryName },
+        }),
+      }, true);
     } catch (error) {
       console.warn(`Auto-merge skipped: required-check protection could not be verified (${error.message})`);
       return;
     }
-    const contexts = new Set(protection.contexts ?? []);
+    if (protection.errors?.length) {
+      console.warn(`Auto-merge skipped: branch-protection query failed (${protection.errors[0].message})`);
+      return;
+    }
+    const exactRule = protection.data?.repository?.branchProtectionRules?.nodes?.find((rule) => rule.pattern === base);
+    const contexts = new Set(exactRule?.requiredStatusCheckContexts ?? []);
     if (userPolicy.requiredChecks.length === 0 || userPolicy.requiredChecks.some((check) => !contexts.has(check))) {
       console.warn("Auto-merge skipped: every locally configured required check must be enforced by branch protection");
       return;

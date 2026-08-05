@@ -1,7 +1,7 @@
 {
   "$schema": "../../schemas/upstream-lock.schema.json",
   "schemaVersion": 1,
-  "adapter": { "id": "open-connector", "version": "0.1.4" },
+  "adapter": { "id": "open-connector", "version": "0.1.5" },
   "upstream": {
     "repository": "oomol-lab/open-connector",
     "release": "v1.3.4",
