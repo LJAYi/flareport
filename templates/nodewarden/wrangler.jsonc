@@ -16,13 +16,13 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "nodewarden-db"
+      "database_name": "flareport-nodewarden-db"
     }
   ],
   "r2_buckets": [
     {
       "binding": "ATTACHMENTS",
-      "bucket_name": "nodewarden-attachments"
+      "bucket_name": "flareport-nodewarden-attachments"
     }
   ],
   "durable_objects": {
