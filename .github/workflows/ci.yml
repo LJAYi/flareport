@@ -20,12 +20,33 @@ jobs:
       - run: npm ci
       - run: npm run check
 
+  changed-templates:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.templates.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - id: templates
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          templates=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+            | sed -nE 's#^(adapters|templates)/([^/]+)/.*#\2#p' \
+            | sort -u \
+            | jq -Rsc 'split("\n") | map(select(length > 0))')
+          echo "matrix=$templates" >> "$GITHUB_OUTPUT"
+
   template-fixtures:
+    needs: changed-templates
+    if: needs.changed-templates.outputs.matrix != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        template: [open-connector, nodewarden]
+        template: ${{ fromJSON(needs.changed-templates.outputs.matrix) }}
     defaults:
       run:
         working-directory: templates/${{ matrix.template }}
