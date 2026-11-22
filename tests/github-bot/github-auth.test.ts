@@ -32,8 +32,9 @@ test("exchanges an app JWT for an installation token using a mocked fetch", asyn
   assert.match(authorization, /^Bearer [^.]+\.[^.]+\.[^.]+$/);
 });
 
-test("HTTP transport applies installation authentication and surfaces REST responses", async () => {
-  const transport = new GitHubHttpTransport("token", async (input, init) => {
+test("HTTP transport calls fetch unbound and surfaces REST responses", async () => {
+  const transport = new GitHubHttpTransport("token", async function (this: unknown, input, init) {
+    assert.equal(this, undefined);
     assert.equal(String(input), "https://api.github.com/repos/octo/app");
     assert.equal(new Headers(init?.headers).get("authorization"), "Bearer token");
     return Response.json({ id: 1 });

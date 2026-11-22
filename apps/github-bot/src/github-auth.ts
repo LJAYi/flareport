@@ -71,7 +71,8 @@ export class GitHubHttpTransport implements GitHubTransport {
   private async request<T>(url: string, method: string, body?: unknown): Promise<T> {
     const init: RequestInit = { method, headers: githubHeaders(`Bearer ${this.token}`) };
     if (body !== undefined) init.body = JSON.stringify(body);
-    const response = await this.fetcher(url, init);
+    const fetcher = this.fetcher;
+    const response = await fetcher(url, init);
     if (!response.ok) throw new GitHubApiError(response.status, await response.text());
     return await response.json() as T;
   }
