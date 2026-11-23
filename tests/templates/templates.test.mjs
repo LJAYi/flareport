@@ -20,6 +20,8 @@ const officialActionPins = {
 test("official actions use the reviewed Node 24-capable immutable releases", async () => {
   const workflowFiles = [
     resolve(repositoryRoot, ".github/workflows/ci.yml"),
+    resolve(repositoryRoot, ".github/workflows/upstream-sync.yml"),
+    resolve(repositoryRoot, ".github/workflows/upstream-project.yml"),
     ...ids.flatMap((id) => [
       resolve(templateRoot, id, ".github/workflows/ci.yml"),
       resolve(templateRoot, id, ".github/workflows/flareport-update.yml"),
