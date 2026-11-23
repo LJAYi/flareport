@@ -5,6 +5,8 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": { "AUTO_DISPATCH_ENABLED": "false" },
   "d1_databases": [
     {
       "binding": "DB",

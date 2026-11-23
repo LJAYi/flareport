@@ -45,7 +45,9 @@ FlarePort executes and republishes third-party source, then proposes updates to 
 - Record successful checks separately from optional runtime health reports.
 - Open the next channel only after both the success threshold and observation window pass.
 - Pause on excessive failures. Never interpret missing telemetry as success.
-- Do not let administrative rollout observations directly arm auto-merge; require a future signed check/deployment handler bound to the exact PR head.
+- Do not let administrative reports open automatic gates. Re-read signed notifications through the installation's GitHub API access, require the official Cloudflare App and configured Worker check, and bind deployment evidence to the recorded PR's merge SHA and immutable artifact.
+- Persist evidence and its revision atomically; compare state and revision before promoting a phase. Retain late failures across phase changes.
+- Re-check local authorization after the last PR lookup and merge only the expected head SHA. D1 and GitHub cannot commit atomically: a later pause cannot recall a merge already in flight, and successful build/deployment evidence does not prove runtime or migration health.
 
 ## Explicit non-goals
 

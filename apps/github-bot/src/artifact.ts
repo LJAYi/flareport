@@ -22,10 +22,15 @@ export function isManagedArtifactPath(path: string): boolean {
   const segments = path.split("/");
   if (segments.some((segment) => !segment || segment === "." || segment === "..")) return false;
   const normalized = path.toLowerCase();
+  const leaf = normalized.split("/").at(-1)!;
+  if ((leaf === ".env" || leaf.startsWith(".env.") || leaf === ".dev.vars" || leaf.startsWith(".dev.vars."))
+    && leaf !== ".env.example" && leaf !== ".dev.vars.example") return false;
   return normalized !== ".github"
     && !normalized.startsWith(".github/")
     && normalized !== ".git"
     && !normalized.startsWith(".git/")
     && normalized !== "codeowners"
+    && normalized !== "flareport.user.json"
+    && normalized !== ".flareport" && !normalized.startsWith(".flareport/")
     && normalized !== ".github/codeowners";
 }

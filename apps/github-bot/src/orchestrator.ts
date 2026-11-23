@@ -2,6 +2,7 @@ import type { GitHubClient, UpdateFile } from "./github.ts";
 import { updateDecision } from "./rollout.ts";
 import type { StateStore } from "./store.ts";
 import type { RepositoryRegistration, RolloutState } from "./types.ts";
+import { latestAutomaticReleases, versionFilesForRepository } from "./release.ts";
 
 export interface UpdateArtifact {
   artifactId: string;
@@ -44,6 +45,25 @@ export class UpdateOrchestrator {
     return results;
   }
 
+  async dispatchReleases(): Promise<DispatchResult[]> {
+    const repositories = await this.store.listRepositories();
+    if (repositories.length > 100) throw new Error("Automatic dispatch requires pagination above 100 repositories");
+    const results: DispatchResult[] = [];
+    for (const repository of repositories) {
+      try {
+        const rollout = latestAutomaticReleases(await this.store.listRollouts()).get(repository.template);
+        if (!rollout || rollout.phase === "paused") continue;
+        const artifact = await this.store.getArtifact(rollout.artifactId);
+        if (!artifact) throw new Error("Published release artifact is missing");
+        results.push(await this.dispatchRepository(repository, rollout, { ...artifact, artifactId: artifact.id }));
+      } catch (error) {
+        // Failure in one repository must not prevent the remaining repositories from progressing.
+        results.push({ repository: `${repository.owner}/${repository.repo}`, outcome: "skipped", reason: (error as Error).message });
+      }
+    }
+    return results;
+  }
+
   async dispatchRepository(
     repository: RepositoryRegistration,
     rollout: RolloutState,
@@ -53,6 +73,7 @@ export class UpdateOrchestrator {
       throw new Error("Repository, rollout, and artifact do not describe the same update");
     }
     const repositoryName = `${repository.owner}/${repository.repo}`;
+    const skipped = (reason: string): DispatchResult => ({ repository: repositoryName, outcome: "skipped", reason });
     if (rollout.artifactId !== artifact.artifactId) throw new Error("Rollout and artifact ID do not match");
     const existing = await this.store.getDispatch(repositoryName, artifact.artifactId);
     if (existing) {
@@ -67,7 +88,33 @@ export class UpdateOrchestrator {
     if (!decision.createPullRequest) {
       return { repository: repositoryName, outcome: "skipped", reason: decision.reason };
     }
+    const current = await this.store.getRepository(repository.owner, repository.repo);
+    if (!current?.enabled || current.installationId !== repository.installationId || current.template !== artifact.template
+      || !(await this.store.getInstallation(current.installationId))?.active) return skipped("repository-or-installation-inactive");
     const client = await this.clients.forInstallation(repository.installationId);
+    let files = artifact.files;
+    let expectedBaseSha: string | undefined;
+    if (rollout.automaticDispatch) {
+      const trusted = await this.store.getArtifact(artifact.artifactId);
+      if (!trusted || trusted.upstreamCommit !== rollout.upstreamCommit) throw new Error("Release artifact mismatch");
+      const settings = await client.getRepository(repository.owner, repository.repo);
+      if (settings.default_branch !== artifact.baseBranch) return skipped("default-branch-mismatch");
+      expectedBaseSha = (await client.getBranch(repository.owner, repository.repo, artifact.baseBranch)).commit.sha;
+      const metadata = await client.readJsonFile(repository.owner, repository.repo, "flareport.json", expectedBaseSha);
+      const pkg = await client.readJsonFile(repository.owner, repository.repo, "package.json", expectedBaseSha);
+      const prepared = versionFilesForRepository(trusted, metadata, pkg);
+      if (!prepared) return skipped("already-current-or-ahead");
+      files = prepared;
+    }
+    const fresh = await this.store.getRepository(repository.owner, repository.repo);
+    const state = await this.store.getRollout(rollout.template, rollout.version);
+    if (!fresh || fresh.installationId !== current.installationId || fresh.template !== artifact.template
+      || !(await this.store.getInstallation(fresh.installationId))?.active
+      || !state || state.artifactId !== artifact.artifactId || state.evidenceRevision !== rollout.evidenceRevision
+      || state.phase === "paused" || !updateDecision(fresh, state).createPullRequest) return skipped("dispatch-policy-changed");
+    if (state.automaticDispatch && latestAutomaticReleases(await this.store.listRollouts()).get(state.template)?.artifactId !== artifact.artifactId) {
+      return skipped("superseded-release");
+    }
     const branch = updateBranch(artifact.template, artifact.version);
     const pull = await client.createUpdatePullRequest({
       owner: repository.owner,
@@ -76,7 +123,8 @@ export class UpdateOrchestrator {
       branch,
       title: `flareport: update ${artifact.template} to ${artifact.version}`,
       body: artifact.releaseNotes,
-      files: artifact.files,
+      files,
+      ...(expectedBaseSha ? { expectedBaseSha } : {}),
     });
     await client.publishArtifactCheck(repository.owner, repository.repo, pull.headSha, artifact.artifactId);
     await this.store.putDispatch({

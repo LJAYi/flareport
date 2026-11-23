@@ -1,4 +1,4 @@
-import type { DispatchRecord, InstallationRecord, RepositoryRegistration, RolloutState, TrustedArtifact } from "./types.ts";
+import type { DispatchRecord, InstallationRecord, RepositoryRegistration, RolloutState, TrustedArtifact, VerifiedDeployment } from "./types.ts";
 
 export interface StateStore {
   putInstallation(record: InstallationRecord): Promise<void>;
@@ -6,12 +6,18 @@ export interface StateStore {
   putRepository(record: RepositoryRegistration): Promise<void>;
   getRepository(owner: string, repo: string): Promise<RepositoryRegistration | undefined>;
   listRepositories(template?: string): Promise<RepositoryRegistration[]>;
-  putRollout(rollout: RolloutState): Promise<void>;
+  putRollout(rollout: RolloutState, onlyIfAbsent?: boolean): Promise<void>;
   getRollout(template: string, version: string): Promise<RolloutState | undefined>;
   putArtifact(artifact: TrustedArtifact): Promise<void>;
   getArtifact(id: string): Promise<TrustedArtifact | undefined>;
   putDispatch(record: DispatchRecord): Promise<void>;
   getDispatch(repositoryKey: string, artifactId: string): Promise<DispatchRecord | undefined>;
+  getDispatchByPull(repositoryKey: string, pullNumber: number): Promise<DispatchRecord | undefined>;
+  listDispatches(repositoryKey: string): Promise<DispatchRecord[]>;
+  listRollouts(): Promise<RolloutState[]>;
+  compareAndSetRollout(previous: RolloutState, next: RolloutState): Promise<boolean>;
+  putVerifiedDeployment(template: string, observation: VerifiedDeployment): Promise<void>;
+  listVerifiedDeployments(template: string, version: string): Promise<VerifiedDeployment[]>;
 }
 
 const repositoryKey = (owner: string, repo: string) => `${owner.toLowerCase()}/${repo.toLowerCase()}`;
@@ -23,6 +29,7 @@ export class MemoryStateStore implements StateStore {
   readonly rollouts = new Map<string, RolloutState>();
   readonly artifacts = new Map<string, TrustedArtifact>();
   readonly dispatches = new Map<string, DispatchRecord>();
+  readonly verifiedDeployments = new Map<string, { template: string; observation: VerifiedDeployment }>();
 
   async putInstallation(record: InstallationRecord): Promise<void> {
     this.installations.set(record.installationId, structuredClone(record));
@@ -48,7 +55,8 @@ export class MemoryStateStore implements StateStore {
       .map((repository) => structuredClone(repository));
   }
 
-  async putRollout(rollout: RolloutState): Promise<void> {
+  async putRollout(rollout: RolloutState, onlyIfAbsent = false): Promise<void> {
+    if (onlyIfAbsent && this.rollouts.has(rolloutKey(rollout.template, rollout.version))) return;
     this.rollouts.set(rolloutKey(rollout.template, rollout.version), structuredClone(rollout));
   }
 
@@ -73,5 +81,40 @@ export class MemoryStateStore implements StateStore {
   async getDispatch(repositoryKey: string, artifactId: string): Promise<DispatchRecord | undefined> {
     const value = this.dispatches.get(`${repositoryKey.toLowerCase()}@${artifactId}`);
     return value && structuredClone(value);
+  }
+
+  async listDispatches(key: string): Promise<DispatchRecord[]> {
+    return [...this.dispatches.values()].filter(record => record.repositoryKey.toLowerCase() === key.toLowerCase())
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50).map(record => structuredClone(record));
+  }
+
+  async getDispatchByPull(key: string, number: number): Promise<DispatchRecord | undefined> {
+    return (await this.listDispatches(key)).find(record => record.pullRequestNumber === number);
+  }
+
+  async listRollouts(): Promise<RolloutState[]> {
+    return [...this.rollouts.values()].map(state => structuredClone(state));
+  }
+
+  async compareAndSetRollout(previous: RolloutState, next: RolloutState): Promise<boolean> {
+    const key = rolloutKey(previous.template, previous.version);
+    if (JSON.stringify(this.rollouts.get(key)) !== JSON.stringify(previous)) return false;
+    this.rollouts.set(key, structuredClone(next));
+    return true;
+  }
+
+  async putVerifiedDeployment(template: string, observation: VerifiedDeployment): Promise<void> {
+    const key = `${observation.repositoryKey.toLowerCase()}@${observation.checkRunId}`;
+    const previous = this.verifiedDeployments.get(key)?.observation;
+    if (!previous || Date.parse(observation.occurredAt) > Date.parse(previous.occurredAt)) {
+      this.verifiedDeployments.set(key, { template, observation: structuredClone(observation) });
+    }
+    const state = this.rollouts.get(rolloutKey(template, observation.version));
+    if (state) state.evidenceRevision = (state.evidenceRevision ?? 0) + 1;
+  }
+
+  async listVerifiedDeployments(template: string, version: string): Promise<VerifiedDeployment[]> {
+    return [...this.verifiedDeployments.values()].filter(value => value.template === template && value.observation.version === version)
+      .map(value => structuredClone(value.observation));
   }
 }

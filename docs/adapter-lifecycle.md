@@ -47,9 +47,10 @@ Check links back to the successful originating run; it is not a deployment Check
 
 A changed default branch requires a fresh run. Unknown occupied update branches,
 edited PR heads and previously closed update PRs require maintainer review; the
-updater never force-pushes or deletes them. Merging the public template PR only
-publishes that template. Dispatch to user repositories remains a separate step;
-this workflow does not upgrade deployed applications or migrate databases.
+updater never force-pushes or deletes them. Merging the public template PR publishes
+the template; the separate, opt-in main-branch CI publisher described below can
+then make it available to the Bot. The upstream-sync workflow itself never
+upgrades deployed applications or migrates databases.
 
 Before approving a real upgrade, review upstream migration/runtime changes,
 validate preservation of user configuration and resource identity, establish a
@@ -68,10 +69,68 @@ Before extraction, generated templates verify the archive digest and inspect the
 
 CI validates the template lock with the same adapter-core validator used for the catalog, then requires its adapter identity, upstream repository, release, commit, archive URL, digest, and generation timestamp to match the central adapter lock and template metadata.
 
+## Bot publication and dispatch
+
+The main-branch `CI` workflow (push or manual dispatch) can publish version-only
+Bot releases after repository tests and all selected template builds/dry-runs
+pass. Manual CI dispatch validates all catalog templates and is also the
+bootstrap/retry path. PR events never publish. Publication runs in a separate
+job with a clean checkout pinned to the validated `github.sha`, read-only
+GitHub permissions, no dependency installation or upstream execution, and no
+downloaded build outputs. Only that step receives the publisher secret.
+
+To enable it deliberately:
+
+1. Deploy the reviewed Bot code with D1 migration `0004_verified_deployments.sql`
+   applied, its GitHub App credentials installed, and signed Check Run webhooks
+   subscribed. Leave `AUTO_DISPATCH_ENABLED` as `"false"` initially.
+2. Create the GitHub environment `flareport-publishing`, restrict it to `main`
+   (and add required reviewers if desired), and store `FLAREPORT_ARTIFACT_TOKEN`
+   there. Its value must match the Bot's `ARTIFACT_TOKEN`, **not** `ADMIN_TOKEN`.
+   Set repository variable `FLAREPORT_BOT_URL` to the Bot's HTTPS origin, with no
+   path or query. No Cloudflare deployment or application secrets go in this job.
+3. Set repository variable `FLAREPORT_BOT_PUBLISH_ENABLED=true`, then manually
+   run CI on `main`. Publication uploads a content-addressed artifact and activates
+   its adapter version. Existing paused releases remain paused on retries.
+4. Register only the intended test deployment with an active installation,
+   `mode: manual`, `channel: canary`, and the exact `Workers Builds: <worker>`
+   check name. Turn on the Bot's `AUTO_DISPATCH_ENABLED="true"` to test automatic
+   PR delivery. This does not permit merging. When the deployment is already
+   current, expect a no-op, not an artificial update or downgrade.
+5. After reviewing a real candidate PR, validate the deployment workflow and
+   branch-required checks, then separately opt in to `auto` or `staged-auto`
+   and the repository's local merge policy. Manual mode continues to require
+   owner review. Choose either the App or the scheduled Actions fallback for a
+   given repository to avoid competing updater PRs.
+
+The artifact contains only four version/attribution files. The Bot preserves
+local metadata policy and package settings; it never changes Wrangler, runtime
+variables, D1/R2 identifiers, secrets or workflows. Package wiring differences
+require manual migration. This is not a general adapter-code/config migration
+system: maintainers must hold publication when an upstream upgrade requires
+new helper scripts, bindings or other configuration, and migrate test/user
+repositories separately before releasing it. Upstream runtime compatibility
+and data migration safety still need review.
+
+Defaults require 10 canary successes over 12 hours and then 100 early-phase
+successes over 24 hours. Those are distinct eligible deployment repositories,
+not people. A small test fleet does not satisfy production gates automatically;
+the end-to-end tests use reduced **test-only** thresholds. The current 100-repository
+reconciliation bound and default cohort sizes are not a production-scale rollout
+configuration; add pagination/batching and plan cohort sizes before fleet rollout.
+The successful deployment observation is not runtime health telemetry.
+
+For local inspection without publishing:
+
+```sh
+node src/template-release.ts prepare nodewarden
+npm run check
+```
+
 ## User configuration
 
 Inputs are classified by phase and sensitivity. Runtime secrets are declared through `.dev.vars.example`; runtime text values belong in Worker variables or a first-run setup flow; build-only values belong in Workers Builds; Cloudflare resources are provisioned from Wrangler bindings. Account identifiers and secret values are never written to adapter manifests or upstream locks.
 
 ## Failure handling
 
-A failed central validation never becomes eligible for rollout. A failed user-repository check blocks auto-merge and contributes one failure observation. A rollout pause stops new automatic merges but does not silently roll back existing deployments. Rollback requires a separate reviewed update or an explicit repository opt-in.
+A failed central validation never becomes eligible for rollout. A failed user-repository validation check blocks auto-merge; only verified post-merge provider deployment checks contribute rollout evidence. A rollout pause stops automatic dispatch and merging but does not silently roll back existing deployments. Rollback requires a separate reviewed update or an explicit repository opt-in.

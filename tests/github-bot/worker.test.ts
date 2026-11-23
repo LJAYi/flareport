@@ -144,7 +144,7 @@ test("dispatch endpoint uses the registered installation and rollout policy", as
 
 test("trusted artifact publication rejects protected and escaping paths", async () => {
   const store = new MemoryStateStore();
-  for (const path of ["../owned", "/absolute", "dir/../../owned", "dir\\owned", "dir//owned", "./owned", ".github/workflows/pwn.yml"]) {
+  for (const path of ["../owned", "/absolute", "dir/../../owned", "dir\\owned", "dir//owned", "./owned", ".github/workflows/pwn.yml", "flareport.user.json", ".flareport/user.json", ".env", "config/.env.production", ".dev.vars"]) {
     const response = await createWorker(store).fetch(new Request(`https://bot.test/api/artifacts/${artifactId}`, {
       method: "PUT", headers: artifactAuth,
       body: JSON.stringify({
