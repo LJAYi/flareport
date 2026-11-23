@@ -99,12 +99,16 @@ test("dispatch endpoint uses the registered installation and rollout policy", as
     },
   });
   let received: unknown;
+  let checked: unknown;
   let clientCalls = 0;
   const githubClient = {
     async createUpdatePullRequest(input: unknown) {
       clientCalls += 1;
       received = input;
       return { number: 3, node_id: "PR_3", html_url: "https://github.test/pr/3", headSha: "d".repeat(40) };
+    },
+    async publishArtifactCheck(owner: string, repo: string, headSha: string, id: string) {
+      checked = { owner, repo, headSha, id };
     },
   } as unknown as GitHubClient;
   const worker = createWorker(store, {
@@ -125,6 +129,7 @@ test("dispatch endpoint uses the registered installation and rollout policy", as
     pullRequestUrl: "https://github.test/pr/3",
   });
   assert.equal(Object.hasOwn(received as object, "autoMerge"), false);
+  assert.deepEqual(checked, { owner: "octo", repo: "app", headSha: "d".repeat(40), id: artifactId });
 
   const retry = await worker.fetch(new Request("https://bot.test/api/repositories/octo/app/dispatch", {
     method: "POST", headers: auth, body: JSON.stringify({ artifactId }),

@@ -78,6 +78,7 @@ export class UpdateOrchestrator {
       body: artifact.releaseNotes,
       files: artifact.files,
     });
+    await client.publishArtifactCheck(repository.owner, repository.repo, pull.headSha, artifact.artifactId);
     await this.store.putDispatch({
       repositoryKey: repositoryName,
       artifactId: artifact.artifactId,

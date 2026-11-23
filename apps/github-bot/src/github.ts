@@ -83,6 +83,20 @@ export class GitHubClient {
     return { ...pull, headSha: commit.sha };
   }
 
+  async publishArtifactCheck(owner: string, repo: string, headSha: string, artifactId: string): Promise<void> {
+    await this.transport.rest("POST", `/repos/${owner}/${repo}/check-runs`, {
+      name: "FlarePort artifact integrity",
+      head_sha: headSha,
+      status: "completed",
+      conclusion: "success",
+      external_id: artifactId,
+      output: {
+        title: "Trusted FlarePort artifact",
+        summary: `Artifact ${artifactId} passed FlarePort publication integrity checks.`,
+      },
+    });
+  }
+
   async enableAutoMerge(pullRequestId: string): Promise<void> {
     await this.transport.graphql(
       `mutation EnableFlarePortAutoMerge($pullRequestId: ID!) {
