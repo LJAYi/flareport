@@ -32,6 +32,23 @@ test("creates an update branch, commits deterministic files, and opens a gated P
   assert.deepEqual((blobs[1]!.body as { content: string }).content, "z");
   assert.equal(calls.filter((call) => call.method === "POST" && call.path.endsWith("/git/commits")).length, 1);
   assert.deepEqual(graphqlCalls, []);
+
+  await new GitHubClient(transport).publishArtifactCheck("octo", "app", "commit-sha", "artifact-sha");
+  assert.deepEqual(calls.at(-1), {
+    method: "POST",
+    path: "/repos/octo/app/check-runs",
+    body: {
+      name: "FlarePort artifact integrity",
+      head_sha: "commit-sha",
+      status: "completed",
+      conclusion: "success",
+      external_id: "artifact-sha",
+      output: {
+        title: "Trusted FlarePort artifact",
+        summary: "Artifact artifact-sha passed FlarePort publication integrity checks.",
+      },
+    },
+  });
 });
 
 test("tolerates an existing update branch", async () => {
