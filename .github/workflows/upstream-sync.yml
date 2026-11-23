@@ -57,4 +57,4 @@ jobs:
     uses: ./.github/workflows/upstream-project.yml
     with:
       adapter: ${{ matrix.adapter }}
-      propose_pr: ${{ github.event_name == 'schedule' || inputs.propose_pr }}
+      propose_pr: ${{ (github.event_name == 'schedule' && vars.FLAREPORT_UPSTREAM_PR_ENABLED == 'true') || (github.event_name == 'workflow_dispatch' && inputs.propose_pr) }}

@@ -132,6 +132,8 @@ test("publisher safely reuses an exact PR and rejects stale bases, occupied or e
 });
 
 test("workflow isolates preparation, untrusted validation and credentialed publication", async () => {
+  const trigger = await readFile(resolve(root, ".github/workflows/upstream-sync.yml"), "utf8");
+  assert.match(trigger, /github.event_name == 'schedule' && vars.FLAREPORT_UPSTREAM_PR_ENABLED == 'true'/);
   const workflow = await readFile(resolve(root, ".github/workflows/upstream-project.yml"), "utf8");
   const validation = workflow.split("  validate:")[1]!.split("  propose:")[0]!;
   assert.doesNotMatch(validation, /secrets\.|GITHUB_TOKEN|contents: write|pull-requests: write/);

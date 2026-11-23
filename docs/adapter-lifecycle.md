@@ -18,6 +18,10 @@ job sequence. This first version supports stable `x.y.z` GitHub releases only.
 Tag-only projects and prerelease policies fail closed instead of guessing.
 For an initial read-only trial, dispatch with `propose_pr: false`; discovery and
 validation still run, but no branch, PR or Check is written.
+Scheduled runs also stay read-only until the maintainer sets the repository
+Actions variable `FLAREPORT_UPSTREAM_PR_ENABLED` to `true` after enabling PR
+creation. This prevents an unconfigured installation from leaving orphaned
+update branches when GitHub rejects PR creation.
 
 Preparation resolves lightweight or annotated release tags to a full SHA,
 rejects downgrades, moved existing tags and non-descendant releases, and hashes
