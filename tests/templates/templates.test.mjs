@@ -112,6 +112,9 @@ for (const id of ids) {
     assert.match(packageJson.scripts.deploy, /wrangler@\d+\.\d+\.\d+/);
     assert.match(wrangler.main, /^\.flareport\/upstream\//);
     assert.equal(wrangler.keep_vars, true);
+    if (id === "nodewarden") {
+      assert.equal(wrangler.assets.html_handling, "none", "WebAuthn connectors require exact .html paths without asset redirects");
+    }
     assert.match(gitignore, /^\.flareport\/$/m);
     const checkedInSource = await readdir(resolve(root, "src")).catch((error) => {
       if (error.code === "ENOENT") return [];
