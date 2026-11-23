@@ -3,7 +3,9 @@ import { artifactDigest, isManagedArtifactPath, type ArtifactPayload } from "./a
 import { installationClient, type Fetcher } from "./github-auth.ts";
 import type { GitHubClient } from "./github.ts";
 import { UpdateOrchestrator, type GitHubClientFactory, type UpdateArtifact } from "./orchestrator.ts";
-import { cohortFor, DEFAULT_ROLLOUT_CONFIG, evaluateRollout, isRepositoryInCurrentPhase, updateDecision } from "./rollout.ts";
+import { cohortFor, DEFAULT_ROLLOUT_CONFIG, isRepositoryInCurrentPhase, updateDecision } from "./rollout.ts";
+import { reconcileRollout, UpdateAutomation } from "./automation.ts";
+import { activateRelease } from "./release.ts";
 import { MemoryStateStore, type StateStore } from "./store.ts";
 import type { RepositoryRegistration, RolloutConfig, RolloutEvent, RolloutState, TrustedArtifact, UpdateMode } from "./types.ts";
 import { handleGitHubWebhook } from "./webhook.ts";
@@ -12,9 +14,11 @@ export interface Env {
   WEBHOOK_SECRET: string;
   ADMIN_TOKEN: string;
   ARTIFACT_TOKEN?: string;
+  SCHEDULER_TOKEN?: string;
   APP_ID?: string;
   PRIVATE_KEY?: string;
   DB?: D1Database;
+  AUTO_DISPATCH_ENABLED?: string;
 }
 
 const memoryStore = new MemoryStateStore();
@@ -26,12 +30,40 @@ export interface WorkerDependencies {
 
 export function createWorker(configuredStore?: StateStore, dependencies: WorkerDependencies = {}) {
   return {
-    async fetch(request: Request, env: Env): Promise<Response> {
+    async scheduled(_controller: unknown, env: Env): Promise<void> {
+      const store = configuredStore ?? (env.DB ? new D1StateStore(env.DB) : memoryStore);
+      const clients = dependencies.githubClientFactory ?? defaultClientFactory(env, dependencies.fetcher);
+      if (clients) {
+        const result = await reconcile(store, clients, env);
+        if (!result.ok) throw new Error("Reconciliation completed with repository failures");
+      }
+    },
+    async fetch(request: Request, env: Env, context?: { waitUntil(promise: Promise<unknown>): void }): Promise<Response> {
       const store = configuredStore ?? (env.DB ? new D1StateStore(env.DB) : memoryStore);
       const url = new URL(request.url);
       if (url.pathname === "/healthz") return json({ ok: true });
       if (url.pathname === "/webhooks/github" && request.method === "POST") {
-        return handleGitHubWebhook(request, env.WEBHOOK_SECRET, store);
+        const clients = dependencies.githubClientFactory ?? defaultClientFactory(env, dependencies.fetcher);
+        const automation = clients && new UpdateAutomation(store, clients, Number(env.APP_ID));
+        return handleGitHubWebhook(request, env.WEBHOOK_SECRET, store, {
+          ...(automation ? { onCompletedCheck: event => automation.handleCompletedCheck(event) } : {}),
+          ...(context ? { waitUntil: promise => context.waitUntil(promise) } : {}),
+        });
+      }
+      if (url.pathname === "/api/scheduler/reconcile") {
+        if (!(await isAuthorized(request, env.SCHEDULER_TOKEN ?? ""))) return json({ error: "unauthorized" }, 401);
+        if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
+        const clients = dependencies.githubClientFactory ?? defaultClientFactory(env, dependencies.fetcher);
+        if (!clients) return json({ error: "github-app-not-configured" }, 503);
+        if (!configuredStore && !env.DB) return json({ error: "database-not-configured" }, 503);
+        try {
+          // Await completion: Actions must not report success for work merely queued with waitUntil.
+          const result = await reconcile(store, clients, env);
+          return json(result, result.ok ? 200 : 502);
+        } catch {
+          // Never expose provider response bodies or credentials to the scheduler caller.
+          return json({ error: "reconciliation-failed" }, 502);
+        }
       }
 
       const artifactMatch = url.pathname.match(/^\/api\/artifacts\/([a-f0-9]{64})$/);
@@ -48,6 +80,16 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
         const artifact: TrustedArtifact = { ...input, id, contentHash: id, createdAt: new Date().toISOString() };
         await store.putArtifact(artifact);
         return json(artifact, 201);
+      }
+      const releaseMatch = url.pathname.match(/^\/api\/releases\/([^/]+)\/([^/]+)$/);
+      if (releaseMatch && request.method === "PUT") {
+        if (!(await isAuthorized(request, env.ARTIFACT_TOKEN ?? ""))) return json({ error: "unauthorized" }, 401);
+        const input = await request.json() as { artifactId?: unknown };
+        if (typeof input.artifactId !== "string" || !/^[a-f0-9]{64}$/.test(input.artifactId)) return json({ error: "invalid-artifact-id" }, 400);
+        const artifact = await store.getArtifact(input.artifactId);
+        if (!artifact || artifact.template !== releaseMatch[1] || artifact.version !== releaseMatch[2]) return json({ error: "artifact-not-found" }, 404);
+        try { return json(await activateRelease(store, artifact.id)); }
+        catch { return json({ error: "invalid-or-conflicting-release" }, 409); }
       }
       if (!(await isAuthorized(request, env.ADMIN_TOKEN))) return json({ error: "unauthorized" }, 401);
 
@@ -99,7 +141,10 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
         if (request.method === "PUT") {
           const input = await request.json() as Partial<RepositoryRegistration>;
           if (!Number.isSafeInteger(input.installationId) || Number(input.installationId) <= 0
-            || !isSlug(input.template) || !isMode(input.mode) || !isChannel(input.channel)) {
+            || !isSlug(input.template) || !isMode(input.mode) || !isChannel(input.channel)
+            || (input.enabled !== undefined && typeof input.enabled !== "boolean")
+            || (input.deploymentCheck !== undefined && (typeof input.deploymentCheck !== "string"
+              || !/^Workers Builds: [a-z0-9][a-z0-9-]{0,62}$/.test(input.deploymentCheck)))) {
             return json({ error: "invalid-repository" }, 400);
           }
           const now = new Date().toISOString();
@@ -114,13 +159,15 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
             enabled: input.enabled ?? true,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
+            ...(input.deploymentCheck !== undefined ? { deploymentCheck: input.deploymentCheck }
+              : existing?.deploymentCheck ? { deploymentCheck: existing.deploymentCheck } : {}),
           };
           await store.putRepository(record);
           return json(record, existing ? 200 : 201);
         }
       }
 
-      const rolloutMatch = url.pathname.match(/^\/api\/rollouts\/([^/]+)\/([^/]+)(?:\/(events|advance|decisions))?$/);
+      const rolloutMatch = url.pathname.match(/^\/api\/rollouts\/([^/]+)\/([^/]+)(?:\/(events|advance|decisions|observations))?$/);
       if (rolloutMatch) {
         const template = decodeURIComponent(rolloutMatch[1]!);
         const version = decodeURIComponent(rolloutMatch[2]!);
@@ -132,6 +179,7 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
           if (existing && input.artifactId && input.artifactId !== existing.artifactId) {
             return json({ error: "rollout-artifact-immutable" }, 409);
           }
+          if (existing) return json(existing);
           if (!existing && (typeof input.artifactId !== "string" || !/^[a-f0-9]{64}$/.test(input.artifactId))) {
             return json({ error: "artifact-required" }, 400);
           }
@@ -139,18 +187,22 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
           if (!existing && (!artifact || artifact.template !== template || artifact.version !== version)) {
             return json({ error: "artifact-not-found" }, 404);
           }
-          const state: RolloutState = existing ?? {
+          const config = mergeConfig(input.config);
+          if (!validRolloutConfig(config)) return json({ error: "invalid-rollout-config" }, 400);
+          const state: RolloutState = {
             template,
             version,
             artifactId: artifact!.id,
             upstreamCommit: artifact!.upstreamCommit,
             phase: "canary",
             phaseStartedAt: new Date().toISOString(),
-            config: mergeConfig(input.config),
+            config,
             events: [],
           };
-          await store.putRollout(state);
-          return json(state, existing ? 200 : 201);
+          await store.putRollout(state, true);
+          const stored = await store.getRollout(template, version);
+          if (stored?.artifactId !== state.artifactId) return json({ error: "rollout-artifact-immutable" }, 409);
+          return json(stored, 201);
         }
         if (request.method === "POST" && operation === "events") {
           const state = await store.getRollout(template, version);
@@ -177,6 +229,7 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
             || occurredAtMs > Date.now() + 5 * 60 * 1000) {
             return json({ error: "invalid-event-time" }, 400);
           }
+          const previous = structuredClone(state);
           state.events.push({
             repositoryKey: `${repository.owner.toLowerCase()}/${repository.repo.toLowerCase()}`,
             artifactId: event.artifactId,
@@ -185,17 +238,17 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
             result: event.result as RolloutEvent["result"],
             occurredAt,
           });
-          const evaluated = evaluateRollout(state);
-          await store.putRollout(evaluated);
-          return json(evaluated, 202);
+          if (!(await store.compareAndSetRollout(previous, state))) {
+            return json({ error: "concurrent-update-retry" }, 409);
+          }
+          return json(state, 202);
         }
         if (request.method === "POST" && operation === "advance") {
           const state = await store.getRollout(template, version);
           if (!state) return json({ error: "not-found" }, 404);
-          const evaluated = evaluateRollout(state);
-          await store.putRollout(evaluated);
-          return json(evaluated);
+          return json(await reconcileRollout(store, template, version));
         }
+        if (request.method === "GET" && operation === "observations") return json(await store.listVerifiedDeployments(template, version));
         if (request.method === "GET" && operation === "decisions") {
           const state = await store.getRollout(template, version);
           if (!state) return json({ error: "not-found" }, 404);
@@ -212,6 +265,17 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
   };
 }
 
+async function reconcile(store: StateStore, clients: GitHubClientFactory, env: Env) {
+  const reconciliationFailures = await new UpdateAutomation(store, clients, Number(env.APP_ID)).reconcile();
+  const automaticDispatchEnabled = env.AUTO_DISPATCH_ENABLED === "true";
+  // Incomplete provider observations must not be followed by new automatic dispatches.
+  const results = automaticDispatchEnabled && reconciliationFailures === 0
+    ? await new UpdateOrchestrator(store, clients).dispatchReleases() : [];
+  for (const result of results) console.log(JSON.stringify({ event: "release-dispatch", ...result }));
+  const dispatchFailures = results.filter(result => result.outcome === "failed").length;
+  return { ok: reconciliationFailures === 0 && dispatchFailures === 0, reconciliationFailures, dispatchFailures, automaticDispatchEnabled };
+}
+
 function mergeConfig(input?: Partial<RolloutConfig>): RolloutConfig {
   return {
     ...DEFAULT_ROLLOUT_CONFIG,
@@ -219,6 +283,15 @@ function mergeConfig(input?: Partial<RolloutConfig>): RolloutConfig {
     canary: { ...DEFAULT_ROLLOUT_CONFIG.canary, ...input?.canary },
     early: { ...DEFAULT_ROLLOUT_CONFIG.early, ...input?.early },
   };
+}
+
+function validRolloutConfig(config: RolloutConfig): boolean {
+  return Number.isInteger(config.canaryBasisPoints) && Number.isInteger(config.earlyBasisPoints)
+    && config.canaryBasisPoints >= 0 && config.earlyBasisPoints >= config.canaryBasisPoints && config.earlyBasisPoints <= 10_000
+    && [config.canary, config.early].every(gate => Number.isSafeInteger(gate.minimumSuccesses) && gate.minimumSuccesses > 0
+      && Number.isSafeInteger(gate.minimumEvents) && gate.minimumEvents > 0
+      && Number.isSafeInteger(gate.observationMs) && gate.observationMs >= 0
+      && Number.isFinite(gate.maximumFailureRate) && gate.maximumFailureRate >= 0 && gate.maximumFailureRate <= 1);
 }
 
 async function isAuthorized(request: Request, token: string): Promise<boolean> {

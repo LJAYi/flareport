@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -31,15 +32,22 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
       - id: templates
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          templates=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
-            | sed -nE 's#^(adapters|templates)/([^/]+)/.*#\2#p' \
-            | sort -u \
-            | jq -Rsc 'split("\n") | map(select(length > 0))')
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            templates=$(node src/cli.ts catalog | jq -c '[.projects[].id]')
+          else
+            templates=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+              | sed -nE 's#^(adapters|templates)/([^/]+)/.*#\2#p' \
+              | sort -u \
+              | jq -Rsc 'split("\n") | map(select(length > 0))')
+          fi
           echo "matrix=$templates" >> "$GITHUB_OUTPUT"
 
   template-fixtures:
@@ -67,3 +75,36 @@ jobs:
         run: npm run install:upstream && npm run build:upstream
       - name: Validate the Worker bundle without deploying
         run: npm run validate:cloudflare
+
+  publish-bot-release:
+    needs: [repository, changed-templates, template-fixtures]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      vars.FLAREPORT_BOT_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: flareport-publishing
+    strategy:
+      fail-fast: false
+      matrix:
+        template: ${{ fromJSON(needs.changed-templates.outputs.matrix) }}
+    concurrency:
+      group: bot-publication-${{ matrix.template }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Publish reviewed version files from a clean checkout
+        env:
+          ADAPTER: ${{ matrix.template }}
+          FLAREPORT_BOT_URL: ${{ vars.FLAREPORT_BOT_URL }}
+          FLAREPORT_ARTIFACT_TOKEN: ${{ secrets.FLAREPORT_ARTIFACT_TOKEN }}
+        run: node src/template-release.ts publish "$ADAPTER"

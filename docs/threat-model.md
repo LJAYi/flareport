@@ -35,6 +35,7 @@ FlarePort executes and republishes third-party source, then proposes updates to 
 - Verify every webhook signature before parsing or dispatching an event.
 - Request access only to metadata, contents, pull requests, and checks for selected repositories.
 - Keep installation tokens short-lived and out of logs and persistent rollout records.
+- Authenticate external reconciliation with a separate scheduler-only secret; it cannot publish artifacts or change registration, rollout config or merge policy. Keep the central timer on the default branch in a dedicated environment, with no checkout, GitHub write permissions or upstream execution. Reject HTTP redirects before sending credentials elsewhere; wait for completion and report partial failures. Serialize the single Actions caller, do not run a second cron, and do not treat cancellation/timeouts as proof that remote side effects stopped.
 - Treat repository policy as authoritative. A central rollout may pause an update but cannot enable auto-merge where the repository selected manual mode.
 - Accept dispatches only for immutable content-addressed artifacts published under a separate credential; reject workflow, Git metadata, CODEOWNERS, and unsafe paths.
 - Fail closed when a deterministic update branch exists but cannot be proven to belong to the recorded updater flow.
@@ -45,7 +46,9 @@ FlarePort executes and republishes third-party source, then proposes updates to 
 - Record successful checks separately from optional runtime health reports.
 - Open the next channel only after both the success threshold and observation window pass.
 - Pause on excessive failures. Never interpret missing telemetry as success.
-- Do not let administrative rollout observations directly arm auto-merge; require a future signed check/deployment handler bound to the exact PR head.
+- Do not let administrative reports open automatic gates. Re-read signed notifications through the installation's GitHub API access, require the official Cloudflare App and configured Worker check, and bind deployment evidence to the recorded PR's merge SHA and immutable artifact.
+- Persist evidence and its revision atomically; compare state and revision before promoting a phase. Retain late failures across phase changes.
+- Re-check local authorization after the last PR lookup and merge only the expected head SHA. D1 and GitHub cannot commit atomically: a later pause cannot recall a merge already in flight, and successful build/deployment evidence does not prove runtime or migration health.
 
 ## Explicit non-goals
 

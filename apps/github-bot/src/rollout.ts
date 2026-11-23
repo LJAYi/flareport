@@ -35,10 +35,12 @@ export function updateDecision(
 ): { createPullRequest: boolean; autoMerge: boolean; reason: string } {
   if (!repository.enabled) return { createPullRequest: false, autoMerge: false, reason: "repository-disabled" };
   if (repository.mode === "manual") return { createPullRequest: true, autoMerge: false, reason: "manual-review" };
-  // MVP never arms auto-merge while creating a PR. A later trusted check/deployment
-  // webhook must prove the exact commit passed required gates before it may be armed.
-  if (repository.mode === "auto") return { createPullRequest: true, autoMerge: false, reason: "repository-auto-pending-checks" };
   if (rollout.phase === "paused") return { createPullRequest: false, autoMerge: false, reason: "rollout-paused" };
+  // Dispatch never merges. The automation handler verifies local opt-in and exact-head checks separately.
+  if (repository.mode === "auto") return { createPullRequest: true, autoMerge: false, reason: "repository-auto-pending-checks" };
+  if (rollout.phase !== "canary" && rollout.phaseEvidence !== "github-checks") {
+    return { createPullRequest: false, autoMerge: false, reason: "unverified-legacy-rollout-phase" };
+  }
   if (rollout.phase === "completed") return { createPullRequest: true, autoMerge: false, reason: "rollout-completed-pending-checks" };
   const eligible = channelRank[repository.channel] <= phaseRank[rollout.phase];
   return eligible
@@ -52,33 +54,40 @@ export function isRepositoryInCurrentPhase(repository: RepositoryRegistration, r
   return channelRank[repository.channel] <= phaseRank[rollout.phase];
 }
 
-function eventsForCurrentPhase(state: RolloutState): RolloutEvent[] {
-  const started = Date.parse(state.phaseStartedAt);
+function latestEvents(state: RolloutState): RolloutEvent[] {
   const latestByRepository = new Map<string, RolloutEvent>();
   for (const event of state.events) {
-    if (Date.parse(event.occurredAt) >= started) latestByRepository.set(event.repositoryKey, event);
+    const previous = latestByRepository.get(event.repositoryKey.toLowerCase());
+    if (!previous || Date.parse(event.occurredAt) >= Date.parse(previous.occurredAt)) {
+      latestByRepository.set(event.repositoryKey.toLowerCase(), event);
+    }
   }
   return [...latestByRepository.values()];
 }
 
 export function evaluateRollout(state: RolloutState, now = new Date()): RolloutState {
   const phase = state.phase;
-  if (phase !== "canary" && phase !== "early") return structuredClone(state);
+  if (phase !== "canary" && phase !== "early" && phase !== "stable") return structuredClone(state);
   const next = structuredClone(state);
-  const events = eventsForCurrentPhase(next);
+  const allEvents = latestEvents(next);
+  const events = allEvents.filter(event => Date.parse(event.occurredAt) >= Date.parse(next.phaseStartedAt));
   const failures = events.filter((event) => event.result !== "success").length;
   const successes = events.length - failures;
-  const gate = next.config[phase];
-  const failureRate = events.length === 0 ? 0 : failures / events.length;
+  const gate = next.config[phase === "canary" ? "canary" : "early"];
+  // A phase switch must not erase failures delivered late from an earlier phase.
+  const failureRate = allEvents.length === 0 ? 0 : allEvents.filter(event => event.result !== "success").length / allEvents.length;
+  const minimumFailureSamples = Math.min(next.config.canary.minimumEvents, gate.minimumEvents);
 
-  if (events.length >= gate.minimumEvents && failureRate > gate.maximumFailureRate) {
+  if (allEvents.length >= minimumFailureSamples && failureRate > gate.maximumFailureRate) {
     next.phase = "paused";
     next.pausedReason = `failure-rate-${failureRate.toFixed(4)}-exceeded-${gate.maximumFailureRate}`;
     return next;
   }
+  if (phase === "stable") return next;
 
-  const observedFor = now.getTime() - Date.parse(next.phaseStartedAt);
-  if (successes >= gate.minimumSuccesses && observedFor >= gate.observationMs) {
+  const firstObservation = Math.min(...events.map(event => Date.parse(event.occurredAt)));
+  const observedFor = now.getTime() - Math.max(Date.parse(next.phaseStartedAt), firstObservation);
+  if (events.length >= gate.minimumEvents && successes >= gate.minimumSuccesses && observedFor >= gate.observationMs) {
     next.phase = phase === "canary" ? "early" : "stable";
     next.phaseStartedAt = now.toISOString();
   }

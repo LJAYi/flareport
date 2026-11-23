@@ -11,6 +11,7 @@ export interface RepositoryRegistration {
   mode: UpdateMode;
   channel: UpdateChannel;
   enabled: boolean;
+  deploymentCheck?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -38,7 +39,17 @@ export interface RolloutEvent {
   occurredAt: string;
 }
 
+export interface VerifiedDeployment extends RolloutEvent {
+  checkRunId: number;
+  mergeSha: string;
+  startedAt: string;
+  versionId?: string;
+}
+
 export interface RolloutState {
+  automaticDispatch?: boolean;
+  evidenceRevision?: number;
+  phaseEvidence?: "github-checks";
   template: string;
   version: string;
   artifactId: string;
