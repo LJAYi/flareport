@@ -94,7 +94,9 @@ To enable it deliberately:
    its adapter version. Existing paused releases remain paused on retries.
 4. Register only the intended test deployment with an active installation,
    `mode: manual`, `channel: canary`, and the exact `Workers Builds: <worker>`
-   check name. Turn on the Bot's `AUTO_DISPATCH_ENABLED="true"` to test automatic
+   check name. Configure the [central Actions timer](../apps/github-bot/README.md#central-scheduler),
+   which wakes the existing Bot without a per-user timer or Cloudflare cron slot.
+   Turn on the Bot's `AUTO_DISPATCH_ENABLED="true"` to test automatic
    PR delivery. This does not permit merging. When the deployment is already
    current, expect a no-op, not an artificial update or downgrade.
 5. After reviewing a real candidate PR, validate the deployment workflow and

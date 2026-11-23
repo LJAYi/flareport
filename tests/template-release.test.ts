@@ -119,10 +119,10 @@ test("scheduled dispatch is opt-in, obeys cohorts, is idempotent and isolates re
   f.client.readJsonFile = async (...args) => { if (args[1] === "broken") throw new Error("Repository unavailable"); return read(...args); };
   await f.worker.scheduled({}, env);
   assert.equal(f.calls.length, 0);
-  await f.worker.scheduled({}, { ...env, AUTO_DISPATCH_ENABLED: "true" });
+  await assert.rejects(f.worker.scheduled({}, { ...env, AUTO_DISPATCH_ENABLED: "true" }), /repository failures/);
   assert.deepEqual(f.calls.map(call => call.repo), ["canary", "manual"]);
   for (const call of f.calls) { assert.equal(call.expectedBaseSha, base); assert.deepEqual(call.files.map(file => file.path), [...VERSION_FILES]); }
-  await f.worker.scheduled({}, { ...env, AUTO_DISPATCH_ENABLED: "true" });
+  await assert.rejects(f.worker.scheduled({}, { ...env, AUTO_DISPATCH_ENABLED: "true" }), /repository failures/);
   assert.equal(f.calls.length, 2);
   const latest = (await f.store.getRollout("nodewarden", f.artifact.version))!;
   await f.store.putRollout({ ...latest, phase: "paused" });
@@ -159,6 +159,41 @@ test("publication -> canary PR -> verified deployment -> next cohort PR works wi
   assert.equal((await f.store.getRollout("nodewarden", f.artifact.version))!.phase, "stable");
   assert.deepEqual(f.calls.map(call => call.repo), ["canary", "early", "stable"]);
   assert.equal((await f.store.listVerifiedDeployments("nodewarden", f.artifact.version)).length, 2);
+});
+
+test("HTTP scheduler shares dispatch gates, reports failures, and retries without duplicate PRs", async () => {
+  const f = await fixture();
+  await publishTemplateRelease(f.artifact, "https://bot.test", env.ARTIFACT_TOKEN, f.fetcher);
+  await f.register("canary", "canary", "manual");
+  const tick = (enabled = false) => f.worker.fetch(new Request("https://bot.test/api/scheduler/reconcile", {
+    method: "POST", headers: { authorization: "Bearer scheduler-secret" },
+    // Caller input cannot change server-owned policy.
+    body: JSON.stringify({ AUTO_DISPATCH_ENABLED: "true", autoMerge: true }),
+  }), { ...env, SCHEDULER_TOKEN: "scheduler-secret", AUTO_DISPATCH_ENABLED: String(enabled) });
+  assert.equal((await tick()).status, 200);
+  assert.equal(f.calls.length, 0);
+  assert.equal((await tick(true)).status, 200);
+  assert.equal((await tick(true)).status, 200);
+  assert.equal(f.calls.length, 1);
+  assert.equal((await f.store.getRepository("octo", "canary"))!.mode, "manual");
+
+  const read = f.client.getPull;
+  f.client.getPull = async () => { throw new Error("Provider unavailable"); };
+  await f.register("later", "canary", "manual");
+  const failed = await tick(true);
+  assert.equal(failed.status, 502);
+  assert.deepEqual(await failed.json(), { ok: false, reconciliationFailures: 1, dispatchFailures: 0, automaticDispatchEnabled: true });
+  assert.equal(f.calls.length, 1, "do not dispatch after incomplete reconciliation");
+  f.client.getPull = read;
+  assert.equal((await tick(true)).status, 200);
+  assert.equal(f.calls.length, 2);
+
+  await f.register("broken", "canary");
+  f.client.readJsonFile = async () => { throw new Error("Provider unavailable"); };
+  const dispatchFailure = await tick(true);
+  assert.equal(dispatchFailure.status, 502);
+  assert.deepEqual(await dispatchFailure.json(), { ok: false, reconciliationFailures: 0, dispatchFailures: 1, automaticDispatchEnabled: true });
+  assert.equal(f.calls.length, 2);
 });
 
 test("base movement, disabled installations and late policy changes cannot write update branches", async () => {

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
+import { runInNewContext } from "node:vm";
 import { hmacSha256 } from "../../apps/github-bot/src/crypto.ts";
 import { artifactDigest, type ArtifactPayload } from "../../apps/github-bot/src/artifact.ts";
 import { MemoryStateStore } from "../../apps/github-bot/src/store.ts";
@@ -49,6 +51,69 @@ test("admin API is protected", async () => {
     new Request("https://bot.test/api/repositories/octo/app"), env,
   );
   assert.equal(response.status, 401);
+});
+
+test("scheduler token is narrow, optional, POST-only, and fails closed without configuration", async () => {
+  const store = new MemoryStateStore();
+  const worker = createWorker(store);
+  const schedulerEnv = { ...env, SCHEDULER_TOKEN: "scheduler-secret" };
+  const url = "https://bot.test/api/scheduler/reconcile";
+  const request = (token = "scheduler-secret", method = "POST") => new Request(url, { method, headers: { authorization: `Bearer ${token}` } });
+  assert.equal((await worker.fetch(request(), env)).status, 401);
+  for (const token of ["", "wrong", env.ADMIN_TOKEN, env.ARTIFACT_TOKEN]) {
+    assert.equal((await worker.fetch(request(token), schedulerEnv)).status, 401);
+  }
+  const wrongMethod = await worker.fetch(request("scheduler-secret", "GET"), schedulerEnv);
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(wrongMethod.headers.get("allow"), "POST");
+  assert.equal((await worker.fetch(request(), schedulerEnv)).status, 503);
+  const dependencies = { githubClientFactory: { async forInstallation(): Promise<GitHubClient> { throw new Error("unused"); } } };
+  assert.equal((await createWorker(undefined, dependencies).fetch(request(), schedulerEnv)).status, 503);
+  const configured = createWorker(store, dependencies);
+  assert.deepEqual(await (await configured.fetch(request(), schedulerEnv)).json(), {
+    ok: true, reconciliationFailures: 0, dispatchFailures: 0, automaticDispatchEnabled: false,
+  });
+  for (const [path, method] of [["/api/repositories/octo/app", "PUT"], [`/api/artifacts/${artifactId}`, "PUT"], ["/api/releases/nodewarden/1.0.0", "PUT"]] as const) {
+    assert.equal((await configured.fetch(new Request(`https://bot.test${path}`, { method,
+      headers: { authorization: "Bearer scheduler-secret" } }), schedulerEnv)).status, 401);
+  }
+  store.listRepositories = async () => { throw new Error("sensitive provider response"); };
+  const failure = await configured.fetch(request(), schedulerEnv);
+  assert.equal(failure.status, 502);
+  assert.deepEqual(await failure.json(), { error: "reconciliation-failed" });
+});
+
+test("central scheduler workflow runs credential-free code, serializes calls and detects HTTP/partial failures", async () => {
+  const workflow = await readFile(new URL("../../.github/workflows/bot-reconcile.yml", import.meta.url), "utf8");
+  assert.match(workflow, /permissions: \{\}/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /group: flareport-bot-reconcile/);
+  assert.match(workflow, /environment: flareport-scheduler/);
+  assert.match(workflow, /github\.event\.repository\.default_branch/);
+  assert.match(workflow, /FLAREPORT_BOT_SCHEDULER_ENABLED == 'true'/);
+  assert.doesNotMatch(workflow, /uses:|pull_request:|pull_request_target:|ADMIN_TOKEN|ARTIFACT_TOKEN|PRIVATE_KEY|contents: write/);
+  const script = workflow.split("<<'NODE'\n")[1]!.split("\n          NODE")[0]!;
+  let calls = 0;
+  const execute = (origin = "https://bot.test", token = "scheduler-secret", status = 200, ok = true) => runInNewContext(`(async () => {${script}\n})()`, {
+    URL, AbortSignal, process: { env: { FLAREPORT_BOT_URL: origin, FLAREPORT_SCHEDULER_TOKEN: token } }, console: { log() {} },
+    async fetch(url: URL, init: RequestInit) {
+      calls++;
+      assert.equal(url.href, "https://bot.test/api/scheduler/reconcile");
+      assert.equal(init.method, "POST"); assert.equal(init.redirect, "error");
+      assert.equal(new Headers(init.headers).get("authorization"), "Bearer scheduler-secret");
+      assert.ok(init.signal);
+      return new Response(JSON.stringify({ ok, reconciliationFailures: 0, dispatchFailures: 0 }), { status });
+    },
+  }) as Promise<void>;
+  for (const origin of ["http://bot.test", "https://user@bot.test", "https://bot.test/path", "https://bot.test?query", "https://bot.test#hash"]) {
+    await assert.rejects(execute(origin), /HTTPS origin/);
+  }
+  await assert.rejects(execute("https://bot.test", ""), /Missing scheduler token/);
+  assert.equal(calls, 0);
+  await execute();
+  for (const status of [202, 302, 401, 502]) await assert.rejects(execute("https://bot.test", "scheduler-secret", status), /HTTP/);
+  await assert.rejects(execute("https://bot.test", "scheduler-secret", 200, false), /did not complete/);
+  assert.equal(calls, 6, "no automatic HTTP retries after ambiguous failures");
 });
 
 test("repository registration rejects unsafe coordinates and invalid policy identifiers", async () => {

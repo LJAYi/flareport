@@ -1,11 +1,12 @@
 {
-  // Set WEBHOOK_SECRET, ADMIN_TOKEN, ARTIFACT_TOKEN, APP_ID, and PRIVATE_KEY with `wrangler secret put`.
+  // Set WEBHOOK_SECRET, ADMIN_TOKEN, ARTIFACT_TOKEN, SCHEDULER_TOKEN, APP_ID, and PRIVATE_KEY with `wrangler secret put`.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "flareport-github-bot",
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
-  "triggers": { "crons": ["*/5 * * * *"] },
+  // Central GitHub Actions supplies the timer; do not enable two schedulers.
+  "triggers": { "crons": [] },
   "vars": { "AUTO_DISPATCH_ENABLED": "false" },
   "d1_databases": [
     {

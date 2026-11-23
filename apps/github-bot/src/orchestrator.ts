@@ -19,7 +19,7 @@ export interface GitHubClientFactory {
 
 export interface DispatchResult {
   repository: string;
-  outcome: "skipped" | "pull-request-created";
+  outcome: "skipped" | "pull-request-created" | "failed";
   reason: string;
   pullRequestUrl?: string;
 }
@@ -58,7 +58,7 @@ export class UpdateOrchestrator {
         results.push(await this.dispatchRepository(repository, rollout, { ...artifact, artifactId: artifact.id }));
       } catch (error) {
         // Failure in one repository must not prevent the remaining repositories from progressing.
-        results.push({ repository: `${repository.owner}/${repository.repo}`, outcome: "skipped", reason: (error as Error).message });
+        results.push({ repository: `${repository.owner}/${repository.repo}`, outcome: "failed", reason: (error as Error).message });
       }
     }
     return results;

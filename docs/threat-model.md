@@ -35,6 +35,7 @@ FlarePort executes and republishes third-party source, then proposes updates to 
 - Verify every webhook signature before parsing or dispatching an event.
 - Request access only to metadata, contents, pull requests, and checks for selected repositories.
 - Keep installation tokens short-lived and out of logs and persistent rollout records.
+- Authenticate external reconciliation with a separate scheduler-only secret; it cannot publish artifacts or change registration, rollout config or merge policy. Keep the central timer on the default branch in a dedicated environment, with no checkout, GitHub write permissions or upstream execution. Reject HTTP redirects before sending credentials elsewhere; wait for completion and report partial failures. Serialize the single Actions caller, do not run a second cron, and do not treat cancellation/timeouts as proof that remote side effects stopped.
 - Treat repository policy as authoritative. A central rollout may pause an update but cannot enable auto-merge where the repository selected manual mode.
 - Accept dispatches only for immutable content-addressed artifacts published under a separate credential; reject workflow, Git metadata, CODEOWNERS, and unsafe paths.
 - Fail closed when a deterministic update branch exists but cannot be proven to belong to the recorded updater flow.

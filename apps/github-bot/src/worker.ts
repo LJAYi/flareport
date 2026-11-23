@@ -14,6 +14,7 @@ export interface Env {
   WEBHOOK_SECRET: string;
   ADMIN_TOKEN: string;
   ARTIFACT_TOKEN?: string;
+  SCHEDULER_TOKEN?: string;
   APP_ID?: string;
   PRIVATE_KEY?: string;
   DB?: D1Database;
@@ -33,11 +34,8 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
       const store = configuredStore ?? (env.DB ? new D1StateStore(env.DB) : memoryStore);
       const clients = dependencies.githubClientFactory ?? defaultClientFactory(env, dependencies.fetcher);
       if (clients) {
-        await new UpdateAutomation(store, clients, Number(env.APP_ID)).reconcile();
-        if (env.AUTO_DISPATCH_ENABLED === "true") {
-          const results = await new UpdateOrchestrator(store, clients).dispatchReleases();
-          for (const result of results) console.log(JSON.stringify({ event: "release-dispatch", ...result }));
-        }
+        const result = await reconcile(store, clients, env);
+        if (!result.ok) throw new Error("Reconciliation completed with repository failures");
       }
     },
     async fetch(request: Request, env: Env, context?: { waitUntil(promise: Promise<unknown>): void }): Promise<Response> {
@@ -51,6 +49,21 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
           ...(automation ? { onCompletedCheck: event => automation.handleCompletedCheck(event) } : {}),
           ...(context ? { waitUntil: promise => context.waitUntil(promise) } : {}),
         });
+      }
+      if (url.pathname === "/api/scheduler/reconcile") {
+        if (!(await isAuthorized(request, env.SCHEDULER_TOKEN ?? ""))) return json({ error: "unauthorized" }, 401);
+        if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
+        const clients = dependencies.githubClientFactory ?? defaultClientFactory(env, dependencies.fetcher);
+        if (!clients) return json({ error: "github-app-not-configured" }, 503);
+        if (!configuredStore && !env.DB) return json({ error: "database-not-configured" }, 503);
+        try {
+          // Await completion: Actions must not report success for work merely queued with waitUntil.
+          const result = await reconcile(store, clients, env);
+          return json(result, result.ok ? 200 : 502);
+        } catch {
+          // Never expose provider response bodies or credentials to the scheduler caller.
+          return json({ error: "reconciliation-failed" }, 502);
+        }
       }
 
       const artifactMatch = url.pathname.match(/^\/api\/artifacts\/([a-f0-9]{64})$/);
@@ -250,6 +263,17 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
       return json({ error: "not-found" }, 404);
     },
   };
+}
+
+async function reconcile(store: StateStore, clients: GitHubClientFactory, env: Env) {
+  const reconciliationFailures = await new UpdateAutomation(store, clients, Number(env.APP_ID)).reconcile();
+  const automaticDispatchEnabled = env.AUTO_DISPATCH_ENABLED === "true";
+  // Incomplete provider observations must not be followed by new automatic dispatches.
+  const results = automaticDispatchEnabled && reconciliationFailures === 0
+    ? await new UpdateOrchestrator(store, clients).dispatchReleases() : [];
+  for (const result of results) console.log(JSON.stringify({ event: "release-dispatch", ...result }));
+  const dispatchFailures = results.filter(result => result.outcome === "failed").length;
+  return { ok: reconciliationFailures === 0 && dispatchFailures === 0, reconciliationFailures, dispatchFailures, automaticDispatchEnabled };
 }
 
 function mergeConfig(input?: Partial<RolloutConfig>): RolloutConfig {

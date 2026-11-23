@@ -99,7 +99,8 @@ export class UpdateAutomation {
     }
   }
 
-  async reconcile(): Promise<void> {
+  async reconcile(): Promise<number> {
+    let failures = 0;
     const repositories = await this.store.listRepositories();
     if (repositories.length > 100) throw new Error("Reconciliation requires pagination above 100 repositories");
     for (const repository of repositories) {
@@ -115,10 +116,12 @@ export class UpdateAutomation {
           for (const check of checks) await this.observeDeployment(repository, record, pull, check, client);
         } else await this.maybeMerge(repository, record, client);
       } catch (error) {
+        failures++;
         console.error(`FlarePort reconciliation failed for ${key(repository)}: ${(error as Error).message}`);
       }
     }
     for (const state of await this.store.listRollouts()) await reconcileRollout(this.store, state.template, state.version);
+    return failures;
   }
 
   async maybeMerge(repository: RepositoryRegistration, record: DispatchRecord, client: GitHubClient): Promise<string> {
