@@ -1,0 +1,117 @@
+name: Validate and propose one upstream update
+
+on:
+  workflow_call:
+    inputs:
+      adapter:
+        required: true
+        type: string
+      propose_pr:
+        required: true
+        type: boolean
+
+concurrency:
+  group: upstream-${{ inputs.adapter }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      available: ${{ steps.prepare.outputs.available }}
+      hash: ${{ steps.prepare.outputs.hash }}
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - id: prepare
+        name: Resolve stable release and seal version-only candidate
+        env:
+          ADAPTER: ${{ inputs.adapter }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node src/upstream-update.ts prepare "$ADAPTER" "$RUNNER_TEMP/candidate.json"
+      - id: upload
+        if: steps.prepare.outputs.available == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: upstream-${{ inputs.adapter }}
+          path: ${{ runner.temp }}/candidate.json
+          if-no-files-found: error
+          retention-days: 7
+
+  validate:
+    needs: prepare
+    if: needs.prepare.outputs.available == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/candidate
+      - name: Verify and apply sealed candidate
+        env:
+          ADAPTER: ${{ inputs.adapter }}
+          FLAREPORT_CANDIDATE_HASH: ${{ needs.prepare.outputs.hash }}
+        run: node src/upstream-update.ts apply "$ADAPTER" "$RUNNER_TEMP/candidate/candidate.json"
+      - run: npm ci && npm run check
+      - name: Build and dry-run pinned upstream without write credentials
+        env:
+          ADAPTER: ${{ inputs.adapter }}
+        run: |
+          npm test --prefix "templates/$ADAPTER"
+          npm run build --prefix "templates/$ADAPTER"
+          npm run validate:cloudflare --prefix "templates/$ADAPTER"
+      - name: NodeWarden compatibility and security regression tests
+        if: inputs.adapter == 'nodewarden'
+        working-directory: templates/nodewarden/.flareport/upstream
+        run: |
+          npm run test:config-compatibility
+          npm run test:vault-compatibility
+          npm run test:notifications-security
+          npm run test:web-crypto
+          npm run test:webauthn-connectors
+
+  propose:
+    needs: [prepare, validate]
+    if: inputs.propose_pr
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/candidate
+      - name: Verify sealed candidate and create manual-review PR
+        env:
+          ADAPTER: ${{ inputs.adapter }}
+          FLAREPORT_CANDIDATE_HASH: ${{ needs.prepare.outputs.hash }}
+          FLAREPORT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node src/upstream-update.ts propose "$ADAPTER" "$RUNNER_TEMP/candidate/candidate.json"

@@ -1,0 +1,60 @@
+name: Upstream sync
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      adapter:
+        description: Adapter ID, or all
+        default: all
+        required: true
+        type: string
+      propose_pr:
+        description: Create a PR after validation (disable for a read-only trial)
+        default: true
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    outputs:
+      adapters: ${{ steps.catalog.outputs.adapters }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - id: catalog
+        env:
+          REQUESTED_ADAPTER: ${{ inputs.adapter || 'all' }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFile } from 'node:fs/promises';
+          import { loadCatalog } from './src/catalog.ts';
+          const entries = await loadCatalog({ repositoryRoot: process.cwd() });
+          const selected = entries.filter(entry => process.env.REQUESTED_ADAPTER === 'all' || entry.id === process.env.REQUESTED_ADAPTER).map(entry => entry.id);
+          if (!selected.length) throw new Error('Unknown adapter');
+          await appendFile(process.env.GITHUB_OUTPUT, `adapters=${JSON.stringify(selected)}\n`);
+          JS
+
+  sync:
+    needs: catalog
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: ${{ fromJSON(needs.catalog.outputs.adapters) }}
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: write
+    uses: ./.github/workflows/upstream-project.yml
+    with:
+      adapter: ${{ matrix.adapter }}
+      propose_pr: ${{ github.event_name == 'schedule' || inputs.propose_pr }}
