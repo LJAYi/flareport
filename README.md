@@ -6,6 +6,10 @@ FlarePort is a community-maintained catalog of deployment adapters for open-sour
 
 FlarePort is not an application marketplace or a hosted deployment service. User repositories, Cloudflare resources, secrets, domains, and application data remain user-owned.
 
+## Naming
+
+Use **FlarePort** for the project and website title, and `flareport` for the repository, Worker, CLI command, and domain label. The production GitHub App is **FlarePort Bot** (`flareport-bot`); the test App is **FlarePort Bot Canary** (`flareport-bot-canary`). App names use the `Bot` suffix because GitHub reserves `FlarePort` for the account with that name. A name alone does not isolate credentials, installation permissions, or backends.
+
 ## MVP
 
 The initial catalog validates two projects:

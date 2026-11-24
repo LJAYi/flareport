@@ -125,6 +125,7 @@ test("native scheduler fails visibly when App or durable state is missing", asyn
 test("selectable scheduler workflow gates events, serializes calls and detects HTTP/partial failures", async () => {
   const workflow = await readFile(new URL("../../.github/workflows/bot-reconcile.yml", import.meta.url), "utf8");
   const config = await readFile(new URL("../../apps/github-bot/wrangler.jsonc", import.meta.url), "utf8");
+  assert.match(config, /"name": "flareport"/);
   assert.match(config, /"crons": \["\*\/5 \* \* \* \*"\]/);
   assert.match(config, /"AUTO_DISPATCH_ENABLED": "false"/);
   assert.match(config, /"SCHEDULER_MODE": "cloudflare"/);

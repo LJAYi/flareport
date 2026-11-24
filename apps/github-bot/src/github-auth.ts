@@ -92,7 +92,7 @@ function githubHeaders(authorization: string): Headers {
     accept: "application/vnd.github+json",
     authorization,
     "content-type": "application/json",
-    "user-agent": "flareport-github-bot",
+    "user-agent": "flareport",
     "x-github-api-version": "2022-11-28",
   });
 }

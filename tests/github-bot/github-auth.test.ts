@@ -23,6 +23,7 @@ test("exchanges an app JWT for an installation token using a mocked fetch", asyn
     77,
     async (input, init) => {
       assert.equal(String(input), "https://api.github.com/app/installations/77/access_tokens");
+      assert.equal(new Headers(init?.headers).get("user-agent"), "flareport");
       authorization = new Headers(init?.headers).get("authorization") ?? "";
       return Response.json({ token: "installation-token" });
     },
@@ -37,6 +38,7 @@ test("HTTP transport calls fetch unbound and surfaces REST responses", async () 
     assert.equal(this, undefined);
     assert.equal(String(input), "https://api.github.com/repos/octo/app");
     assert.equal(new Headers(init?.headers).get("authorization"), "Bearer token");
+    assert.equal(new Headers(init?.headers).get("user-agent"), "flareport");
     return Response.json({ id: 1 });
   });
   assert.deepEqual(await transport.rest("GET", "/repos/octo/app"), { id: 1 });
