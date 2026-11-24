@@ -2,6 +2,10 @@
 
 Cloudflare Worker for repository registration, GitHub App installation authentication, gated update PRs, and staged rollouts. State is persisted in D1; tests can inject `MemoryStateStore` and mocked GitHub clients.
 
+The production App is **FlarePort Bot** (`flareport-bot`), served by the `flareport` Worker. The test identity is **FlarePort Bot Canary** (`flareport-bot-canary`). Keep App IDs, installation IDs, and private keys tied to their original App when renaming; do not create replacement identities just to change their names.
+
+For an existing `flareport-github-bot` Worker, use Cloudflare's [partial Worker update](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/edit/) to rename the same Worker, then update the App webhook and `FLAREPORT_BOT_URL` to the new HTTPS origin. Verify the Worker ID, active version, secret bindings, D1 binding, and single Cron are preserved. Changing only Wrangler's name and deploying can create a second Worker instead. Preserve the existing D1 identity and database name (`flareport-github-bot` in the original installation); renaming the Worker does not require a new database or key rotation.
+
 ## Worker bindings
 
 Set the string values as Worker secrets; never commit them:
