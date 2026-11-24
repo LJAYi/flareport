@@ -16,32 +16,48 @@ Set the string values as Worker secrets; never commit them:
 | `PRIVATE_KEY` | GitHub App RSA private key; PKCS#1 and PKCS#8 PEM are accepted |
 | `DB` | D1 database containing installations, repository policies, and rollout state |
 
-Create D1, replace the placeholder `database_id` in `wrangler.jsonc`, apply `migrations/`, then set the string values with `wrangler secret put`. `SCHEDULER_TOKEN` is optional unless using the HTTP recovery caller; native Cron does not need it. `MemoryStateStore` is ephemeral and intended for tests only; the default Worker selects `D1StateStore` whenever `DB` is bound. The HTTP scheduler refuses to run without D1 outside injected tests.
+Create D1, replace the placeholder `database_id` in `wrangler.jsonc`, apply `migrations/`, then set the string values with `wrangler secret put`. `SCHEDULER_TOKEN` is optional unless using the GitHub/manual HTTP caller; native Cron does not need it. `MemoryStateStore` is ephemeral and intended for tests only; both scheduler entry points require App configuration and durable D1 outside injected tests.
 
 `AUTO_DISPATCH_ENABLED` is a non-secret Worker variable, shipped as `"false"`. Setting it to `"true"` lets reconciliation create eligible PRs for registered repositories. It does not grant auto-merge permission, enable branch settings, or subscribe unregistered repositories. See [publication setup](../../docs/adapter-lifecycle.md#bot-publication-and-dispatch) for the separate central CI opt-in.
 
 ## Central scheduler
 
-The supplied Wrangler config runs the existing `scheduled()` handler every five minutes (`*/5 * * * *`). One native Cloudflare Cron Trigger reconciles all registered templates and deployment repositories. The App identity, private key, D1, rollout evaluation and merge gates stay in the existing Worker. It consumes one cron slot in the Bot operator's account, not one per user or template.
+Choose one of three modes without editing Worker or workflow code. The non-secret Worker variable `SCHEDULER_MODE` is authoritative. The central GitHub repository variable `FLAREPORT_BOT_SCHEDULER_MODE` mirrors that choice only to avoid unnecessary Actions calls; it cannot override the Worker. The Bot identity, private key, D1, reconciliation and merge gates stay in the same Worker in every mode.
 
-1. Keep repository variable `FLAREPORT_BOT_SCHEDULER_ENABLED=false` and remove any previous Actions `schedule` trigger. Let already-running HTTP calls finish before enabling native Cron; cancellation is not proof that remote work stopped.
-2. Confirm an account Cron slot is available, then deploy/configure the Bot schedule. Never remove another application's schedule without its owner's approval. Leave `AUTO_DISPATCH_ENABLED="false"` until separately approved.
-3. Verify a real `cron` invocation in Workers metrics or tail logs, not just `/healthz` or the configured schedule. Cloudflare says Cron changes can take up to 15 minutes to propagate; configuration acceptance alone is not proof of execution.
-4. To stop the native timer, remove its Cron Trigger and update the deployed Wrangler configuration. Changing `FLAREPORT_BOT_SCHEDULER_ENABLED` only gates the Actions caller; it does not stop native Cron or signed webhooks. Stop publication/dispatch and revoke merge opt-ins separately if those must also stop.
+| Mode | Worker `SCHEDULER_MODE` | Wrangler `triggers.crons` | GitHub `FLAREPORT_BOT_SCHEDULER_MODE` | Execution |
+| --- | --- | --- | --- | --- |
+| Cloudflare (default) | `cloudflare` | `["*/5 * * * *"]` | `cloudflare` | Native Cron every five minutes; Actions caller skipped |
+| GitHub | `github` | `[]` | `github` | Actions schedule every five minutes, or **Run workflow** |
+| Manual only | `manual` | `[]` | `manual` | **Run workflow** only; no periodic reconciliation |
 
-Application schedules are separate: this Bot does not execute NodeWarden backups or OpenConnector cleanup, access application data, or receive user Cloudflare credentials. The public-template upstream discovery workflow also remains a separate daily/manual Actions job. Only Bot reconciliation shares this native Cron.
+Persist the Worker mode and Cron list in the operator's Wrangler config so the next deployment preserves the choice. Native mode consumes one Cron slot for all registered templates/deployments, not one per user or template; GitHub/manual mode consumes none after removing native Cron. Setting the mode alone does not free an existing Cron slot. The GitHub variable is under repository **Settings > Secrets and variables > Actions > Variables**. This is configuration-based selection, not a cross-platform one-click settings UI.
 
-### Manual recovery caller
+An absent Worker mode retains the native default for existing installations; an explicitly invalid value fails closed. An unset/invalid GitHub mode skips the Actions job. Native events are ignored in GitHub/manual mode. HTTP requests require `x-flareport-trigger: github-schedule` or `manual`; scheduled HTTP calls are accepted only in GitHub mode, manual calls in GitHub/manual mode, and neither in Cloudflare mode. Mismatches return 409 before reconciliation. The header is routing metadata from the authenticated scheduler, not independent proof of GitHub identity. Request bodies, query parameters and workflow inputs cannot select the Worker's mode or grant update permissions.
 
-`.github/workflows/bot-reconcile.yml` retains `workflow_dispatch` only. Before using it, pause native Cron, allow schedule changes to propagate, and verify in-flight work has drained. Configure the existing scheduler-only credential as Worker secret `SCHEDULER_TOKEN` and GitHub environment secret `FLAREPORT_SCHEDULER_TOKEN` in the central repository's `flareport-scheduler` environment, restricted to the default branch. For first-time setup generate a distinct random credential; do not print, commit or pass it as a workflow input. Set `FLAREPORT_BOT_URL` to the Worker's HTTPS origin (no path, credentials, query or fragment).
+### Switching safely
 
-Temporarily set `FLAREPORT_BOT_SCHEDULER_ENABLED=true`, run **Reconcile FlarePort Bot** manually from the default branch and check completion. Return the variable to `false`, let the HTTP call finish, and only then restore native Cron. Existing secrets need not be rotated when switching timers.
+1. Set `FLAREPORT_BOT_SCHEDULER_MODE=cloudflare` to gate off the Actions caller, regardless of the intended final mode. Wait for in-flight Actions/HTTP work to finish. Cancellation or timeout does not prove that remote work stopped.
+2. If a native Cron exists, remove it and persist `triggers.crons: []`. Allow up to 15 minutes for Cloudflare schedule propagation, then verify old invocations have stopped and in-flight work has drained before changing mode. Do not use a blind sleep as proof that work finished.
+3. Set and deploy the intended Worker `SCHEDULER_MODE` and Cron list from the table. For native mode, first confirm a free account Cron slot; never remove another application's schedule without its owner's approval. Preserve D1, secrets and update policy; no migration or token rotation is needed.
+4. Set the GitHub mirror to the chosen mode **last**. Verify a real `scheduler-reconcile` success event or completed Actions run, not merely `/healthz` or configured triggers. Native `scheduler-skipped` logs mean an ignored source, not a completed reconciliation. For GitHub mode, test manual dispatch and then separately check that a `schedule` event ran; GitHub timing remains best-effort.
+
+Manual-only refers to periodic reconciliation, not a global suspension of the Bot: signed webhooks still run, and existing PR/merge policies remain authoritative. To run manually while using native Cron, switch safely to manual mode first; the Actions button cannot bypass native-mode protection. Stopping all update activity requires separate publication/dispatch and merge-policy controls.
+
+Migration from the earlier boolean switch: deploy this source-gated Worker first, keep the old `FLAREPORT_BOT_SCHEDULER_ENABLED=false` while the older workflow is present, then install the new workflow and configure the new mode variable. The old boolean is no longer read by this workflow and is not a kill switch. The native default preserves current Cloudflare installations; older headerless HTTP clients must be updated before opting into GitHub/manual mode.
+
+### GitHub and manual caller setup
+
+Configure the existing scheduler-only credential as Worker secret `SCHEDULER_TOKEN` and GitHub environment secret `FLAREPORT_SCHEDULER_TOKEN` in the central repository's `flareport-scheduler` environment, restricted to the default branch. For first-time setup generate a distinct random credential; do not print, commit or pass it as a workflow input. Set `FLAREPORT_BOT_URL` to the Worker's HTTPS origin (no path, credentials, query or fragment). No Cloudflare management token or App private key goes into Actions.
+
+The workflow has both `schedule` and `workflow_dispatch` triggers, but its mode gate decides whether the job calls the Bot. In GitHub/manual mode, select **Actions > Reconcile FlarePort Bot > Run workflow** on the default branch. Native/manual-only configurations may still show **skipped** scheduled workflow runs in GitHub; those do not call the Worker. Inspect the job, not just the presence of a workflow run. HTTP 400 indicates missing/invalid source metadata, 409 indicates a mode mismatch, and 503 indicates invalid mode or missing App/D1 configuration.
 
 The job has no GitHub token permissions and performs no checkout, install or upstream execution. It uses only the scheduler credential, rejects redirects, waits for a completed HTTP 200 response with a successful result, and times out after four minutes (six-minute job limit). Missing App/DB configuration returns 503; failed reconciliation returns 502, including per-repository failures. Other repositories can still be examined, but new automatic dispatch is skipped if recovery was incomplete. Dispatch failures are reported even when other dispatches succeeded. An HTTP failure is **not** a rollback of earlier side effects.
 
-GitHub concurrency serializes only its manual jobs with cancellation disabled, not native Cron. There are no immediate HTTP retries after ambiguous errors; existing dispatch records, evidence deduplication and exact-head merge guards support later reconciliation. There is **no distributed execution lock**, including between native ticks: investigate long-running/overlapping executions and timeout/orphan-branch failures before retrying. Large fleets need batching and execution coordination before they approach execution limits or the five-minute interval. Re-enabling a timer never changes a deployment repository's opt-in policy.
+GitHub concurrency serializes its scheduled and manual jobs with cancellation disabled, not native Cron. There are no immediate HTTP retries after ambiguous errors; existing dispatch records, evidence deduplication and exact-head merge guards support later reconciliation. A mode gate is **not a distributed execution lock**: old deployed versions/in-flight work can outlive a configuration change, and long native ticks can overlap. Follow the drain procedure above; investigate timeout/orphan-branch failures before retrying. Large fleets need batching and execution coordination before they approach execution limits or the five-minute interval. Re-enabling a timer never changes a deployment repository's opt-in policy.
 
-GitHub scheduling is best-effort and may delay or drop runs; it is no longer the Bot's automatic timer. Native Cron also is not an exact-time or exactly-once guarantee. See [Cloudflare Cron behavior](https://developers.cloudflare.com/workers/configuration/cron-triggers/) and [account limits](https://developers.cloudflare.com/workers/platform/limits/).
+GitHub scheduling is best-effort and may delay or drop runs; inactive public-repository schedules can also be disabled after 60 days without activity. Native Cron also is not an exact-time or exactly-once guarantee. See [Cloudflare Cron behavior](https://developers.cloudflare.com/workers/configuration/cron-triggers/) and [account limits](https://developers.cloudflare.com/workers/platform/limits/).
+
+Application schedules are separate: this Bot does not execute NodeWarden backups or OpenConnector cleanup, access application data, or receive user Cloudflare credentials. The public-template upstream discovery workflow remains a separate daily/manual Actions job. Only Bot reconciliation uses this mode selection.
 
 ## HTTP contract
 
@@ -51,7 +67,7 @@ Bodies and responses are JSON unless empty. Management routes require `Authoriza
 | --- | --- | --- |
 | `GET` | `/healthz` | Liveness |
 | `POST` | `/webhooks/github` | Signed GitHub App webhook; installation lifecycle and completed Check Run reconciliation |
-| `POST` | `/api/scheduler/reconcile` | Scheduler-token-only tick; no body required and caller settings are ignored, waits for recovery and optional dispatch to complete |
+| `POST` | `/api/scheduler/reconcile` | Scheduler-token-only tick with `x-flareport-trigger: github-schedule` or `manual`; server mode must permit that source; waits for recovery and optional dispatch to complete |
 | `PUT` | `/api/artifacts/:sha256` | Publish an immutable artifact whose canonical body hashes to the path ID |
 | `PUT` | `/api/releases/:template/:version` | Publisher-token-only activation of `{ artifactId }` for automatic PR dispatch; fixed default gates |
 | `GET` | `/api/installations/:id` | Read installation state |

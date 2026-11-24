@@ -1,12 +1,14 @@
 name: Reconcile FlarePort Bot
 
 on:
+  schedule:
+    - cron: '3-58/5 * * * *'
   workflow_dispatch:
 
 permissions: {}
 
-# Manual recovery only. Pause native Cron and drain in-flight ticks before
-# setting FLAREPORT_BOT_SCHEDULER_ENABLED=true; keep it false otherwise.
+# The Worker owns SCHEDULER_MODE; this mirror only gates the Actions caller.
+# Pause the old timer and drain in-flight work before switching modes.
 concurrency:
   group: flareport-bot-reconcile
   cancel-in-progress: false
@@ -14,8 +16,10 @@ concurrency:
 jobs:
   reconcile:
     if: >-
-      vars.FLAREPORT_BOT_SCHEDULER_ENABLED == 'true' &&
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      ((github.event_name == 'schedule' && vars.FLAREPORT_BOT_SCHEDULER_MODE == 'github') ||
+       (github.event_name == 'workflow_dispatch' &&
+        (vars.FLAREPORT_BOT_SCHEDULER_MODE == 'github' || vars.FLAREPORT_BOT_SCHEDULER_MODE == 'manual')))
     runs-on: ubuntu-latest
     timeout-minutes: 6
     environment: flareport-scheduler
@@ -25,6 +29,7 @@ jobs:
         env:
           FLAREPORT_BOT_URL: ${{ vars.FLAREPORT_BOT_URL }}
           FLAREPORT_SCHEDULER_TOKEN: ${{ secrets.FLAREPORT_SCHEDULER_TOKEN }}
+          FLAREPORT_TRIGGER: ${{ github.event_name == 'schedule' && 'github-schedule' || 'manual' }}
         shell: bash
         run: |
           node --input-type=module <<'NODE'
@@ -35,9 +40,11 @@ jobs:
           }
           const token = process.env.FLAREPORT_SCHEDULER_TOKEN;
           if (!token) throw new Error('Missing scheduler token');
+          const source = process.env.FLAREPORT_TRIGGER;
+          if (source !== 'github-schedule' && source !== 'manual') throw new Error('Invalid scheduler source');
           const response = await fetch(new URL('/api/scheduler/reconcile', origin), {
             method: 'POST', redirect: 'error', signal: AbortSignal.timeout(240_000),
-            headers: { authorization: `Bearer ${token}` },
+            headers: { authorization: `Bearer ${token}`, 'x-flareport-trigger': source },
           });
           if (response.status !== 200) throw new Error(`Bot reconciliation HTTP ${response.status}`);
           const result = await response.json();
