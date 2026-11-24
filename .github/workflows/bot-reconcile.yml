@@ -1,13 +1,12 @@
 name: Reconcile FlarePort Bot
 
 on:
-  schedule:
-    - cron: '3-58/5 * * * *'
   workflow_dispatch:
 
 permissions: {}
 
-# One central caller, including manual runs; never cancel a running request.
+# Manual recovery only. Pause native Cron and drain in-flight ticks before
+# setting FLAREPORT_BOT_SCHEDULER_ENABLED=true; keep it false otherwise.
 concurrency:
   group: flareport-bot-reconcile
   cancel-in-progress: false

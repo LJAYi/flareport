@@ -34,7 +34,7 @@ Repositories choose `manual`, `auto`, or `staged-auto`. Automatic merging is opt
 
 The repository Actions fallback and optional GitHub App have separate update paths. Central CI can publish validated version-only artifacts, and the Bot can automatically dispatch eligible update PRs; both switches default off. The App merges only after user/repository opt-in, protected App-bound required checks, and exact-head artifact validation, using GitHub's SHA-conditional merge API without a bypass. Cloudflare's verified post-merge Check Runs provide deduplicated rollout observations; administrative success reports do not open automatic gates. See the [release lifecycle](docs/adapter-lifecycle.md#bot-publication-and-dispatch) for setup and the [App contract](apps/github-bot/README.md) for prerequisites and limits.
 
-The optional [central Actions timer](apps/github-bot/README.md#central-scheduler) wakes the existing Bot Worker using a scheduler-only secret. Its backend and D1 stay in Cloudflare; users need no separate timers and the Bot consumes no Cloudflare cron slot. GitHub schedules are best-effort and require default-branch activation.
+The optional Bot uses one [central Cloudflare Cron Trigger](apps/github-bot/README.md#central-scheduler) for reconciliation across all registered templates and deployments. It consumes one cron slot in the Bot operator's account, not one per user or template. GitHub Actions retains a gated manual recovery entry only. Application tasks such as NodeWarden backups and OpenConnector cleanup are separate and are not run by the public Bot.
 
 ## Development
 
