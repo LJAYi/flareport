@@ -15,6 +15,7 @@ export interface Env {
   ADMIN_TOKEN: string;
   ARTIFACT_TOKEN?: string;
   SCHEDULER_TOKEN?: string;
+  SCHEDULER_MODE?: string;
   APP_ID?: string;
   PRIVATE_KEY?: string;
   DB?: D1Database;
@@ -31,12 +32,19 @@ export interface WorkerDependencies {
 export function createWorker(configuredStore?: StateStore, dependencies: WorkerDependencies = {}) {
   return {
     async scheduled(_controller: unknown, env: Env): Promise<void> {
+      const mode = schedulerMode(env);
+      if (!mode) throw new Error("Invalid SCHEDULER_MODE");
+      if (mode !== "cloudflare") {
+        console.log(JSON.stringify({ event: "scheduler-skipped", source: "cloudflare", mode }));
+        return;
+      }
       const store = configuredStore ?? (env.DB ? new D1StateStore(env.DB) : memoryStore);
       const clients = dependencies.githubClientFactory ?? defaultClientFactory(env, dependencies.fetcher);
-      if (clients) {
-        const result = await reconcile(store, clients, env);
-        if (!result.ok) throw new Error("Reconciliation completed with repository failures");
-      }
+      if (!clients) throw new Error("GitHub App not configured");
+      if (!configuredStore && !env.DB) throw new Error("Database not configured");
+      const result = await reconcile(store, clients, env);
+      console.log(JSON.stringify({ event: "scheduler-reconcile", source: "cloudflare", mode, ...result }));
+      if (!result.ok) throw new Error("Reconciliation completed with repository failures");
     },
     async fetch(request: Request, env: Env, context?: { waitUntil(promise: Promise<unknown>): void }): Promise<Response> {
       const store = configuredStore ?? (env.DB ? new D1StateStore(env.DB) : memoryStore);
@@ -53,12 +61,22 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
       if (url.pathname === "/api/scheduler/reconcile") {
         if (!(await isAuthorized(request, env.SCHEDULER_TOKEN ?? ""))) return json({ error: "unauthorized" }, 401);
         if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
+        const mode = schedulerMode(env);
+        if (!mode) return json({ error: "invalid-scheduler-mode" }, 503);
+        // Routing metadata from the authenticated caller, not proof of GitHub identity.
+        // The caller cannot change the server-owned mode or update policy.
+        const source = request.headers.get("x-flareport-trigger");
+        if (source !== "github-schedule" && source !== "manual") return json({ error: "invalid-scheduler-source" }, 400);
+        if (mode === "cloudflare" || (source === "github-schedule" && mode !== "github")) {
+          return json({ error: "scheduler-mode-mismatch" }, 409);
+        }
         const clients = dependencies.githubClientFactory ?? defaultClientFactory(env, dependencies.fetcher);
         if (!clients) return json({ error: "github-app-not-configured" }, 503);
         if (!configuredStore && !env.DB) return json({ error: "database-not-configured" }, 503);
         try {
           // Await completion: Actions must not report success for work merely queued with waitUntil.
           const result = await reconcile(store, clients, env);
+          console.log(JSON.stringify({ event: "scheduler-reconcile", source, mode, ...result }));
           return json(result, result.ok ? 200 : 502);
         } catch {
           // Never expose provider response bodies or credentials to the scheduler caller.
@@ -263,6 +281,12 @@ export function createWorker(configuredStore?: StateStore, dependencies: WorkerD
       return json({ error: "not-found" }, 404);
     },
   };
+}
+
+function schedulerMode(env: Env): "cloudflare" | "github" | "manual" | undefined {
+  // Preserve the existing native default; explicit invalid values fail closed.
+  const mode = env.SCHEDULER_MODE ?? "cloudflare";
+  return mode === "cloudflare" || mode === "github" || mode === "manual" ? mode : undefined;
 }
 
 async function reconcile(store: StateStore, clients: GitHubClientFactory, env: Env) {

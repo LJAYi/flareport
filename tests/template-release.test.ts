@@ -166,10 +166,10 @@ test("HTTP scheduler shares dispatch gates, reports failures, and retries withou
   await publishTemplateRelease(f.artifact, "https://bot.test", env.ARTIFACT_TOKEN, f.fetcher);
   await f.register("canary", "canary", "manual");
   const tick = (enabled = false) => f.worker.fetch(new Request("https://bot.test/api/scheduler/reconcile", {
-    method: "POST", headers: { authorization: "Bearer scheduler-secret" },
+    method: "POST", headers: { authorization: "Bearer scheduler-secret", "x-flareport-trigger": "manual" },
     // Caller input cannot change server-owned policy.
     body: JSON.stringify({ AUTO_DISPATCH_ENABLED: "true", autoMerge: true }),
-  }), { ...env, SCHEDULER_TOKEN: "scheduler-secret", AUTO_DISPATCH_ENABLED: String(enabled) });
+  }), { ...env, SCHEDULER_TOKEN: "scheduler-secret", SCHEDULER_MODE: "manual", AUTO_DISPATCH_ENABLED: String(enabled) });
   assert.equal((await tick()).status, 200);
   assert.equal(f.calls.length, 0);
   assert.equal((await tick(true)).status, 200);

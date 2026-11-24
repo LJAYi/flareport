@@ -94,9 +94,10 @@ To enable it deliberately:
    its adapter version. Existing paused releases remain paused on retries.
 4. Register only the intended test deployment with an active installation,
    `mode: manual`, `channel: canary`, and the exact `Workers Builds: <worker>`
-   check name. Configure the [central native Cron](../apps/github-bot/README.md#central-scheduler),
-   which uses one Cloudflare cron slot for the Bot, shared across registered templates
-   and deployments rather than one timer per user.
+   check name. Choose a [central scheduler mode](../apps/github-bot/README.md#central-scheduler):
+   native Cloudflare Cron, GitHub Actions Cron, or manual-only. Native mode uses one
+   Cloudflare cron slot shared across registered templates/deployments; the other modes
+   use none after the native schedule is removed. Drain the old source before switching.
    Turn on the Bot's `AUTO_DISPATCH_ENABLED="true"` to test automatic
    PR delivery. This does not permit merging. When the deployment is already
    current, expect a no-op, not an artificial update or downgrade.

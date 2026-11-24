@@ -56,9 +56,11 @@ test("admin API is protected", async () => {
 test("scheduler token is narrow, optional, POST-only, and fails closed without configuration", async () => {
   const store = new MemoryStateStore();
   const worker = createWorker(store);
-  const schedulerEnv = { ...env, SCHEDULER_TOKEN: "scheduler-secret" };
+  const schedulerEnv = { ...env, SCHEDULER_TOKEN: "scheduler-secret", SCHEDULER_MODE: "manual" };
   const url = "https://bot.test/api/scheduler/reconcile";
-  const request = (token = "scheduler-secret", method = "POST") => new Request(url, { method, headers: { authorization: `Bearer ${token}` } });
+  const request = (token = "scheduler-secret", method = "POST") => new Request(url, {
+    method, headers: { authorization: `Bearer ${token}`, "x-flareport-trigger": "manual" },
+  });
   assert.equal((await worker.fetch(request(), env)).status, 401);
   for (const token of ["", "wrong", env.ADMIN_TOKEN, env.ARTIFACT_TOKEN]) {
     assert.equal((await worker.fetch(request(token), schedulerEnv)).status, 401);
@@ -83,29 +85,88 @@ test("scheduler token is narrow, optional, POST-only, and fails closed without c
   assert.deepEqual(await failure.json(), { error: "reconciliation-failed" });
 });
 
-test("native Cron is the only default timer; manual recovery keeps its authentication and failure guards", async () => {
+test("scheduler modes admit only the selected sources before reading state or creating GitHub clients", async () => {
+  for (const mode of [undefined, "cloudflare", "github", "manual", "", "Cloudflare", "unknown"]) {
+    const store = new MemoryStateStore();
+    let reads = 0;
+    store.listRepositories = async () => { reads++; return []; };
+    const worker = createWorker(store, {
+      githubClientFactory: { async forInstallation(): Promise<GitHubClient> { throw new Error("Unexpected client creation"); } },
+    });
+    const runEnv = { ...env, SCHEDULER_TOKEN: "scheduler-secret", ...(mode === undefined ? {} : { SCHEDULER_MODE: mode }) };
+    const valid = mode === undefined || ["cloudflare", "github", "manual"].includes(mode);
+    if (valid) await worker.scheduled({}, runEnv);
+    else await assert.rejects(worker.scheduled({}, runEnv), /Invalid SCHEDULER_MODE/);
+    assert.equal(reads, mode === undefined || mode === "cloudflare" ? 1 : 0);
+
+    for (const source of [undefined, "cloudflare", "github-schedule", "manual", "unknown"]) {
+      const before: number = reads;
+      const allowed = (mode === "github" && (source === "github-schedule" || source === "manual"))
+        || (mode === "manual" && source === "manual");
+      const response = await worker.fetch(new Request("https://bot.test/api/scheduler/reconcile?mode=github", {
+        method: "POST",
+        headers: { authorization: "Bearer scheduler-secret", ...(source === undefined ? {} : { "x-flareport-trigger": source }) },
+        body: JSON.stringify({ SCHEDULER_MODE: "github", AUTO_DISPATCH_ENABLED: "true", autoMerge: true }),
+      }), runEnv);
+      const expected = !valid ? 503 : source !== "github-schedule" && source !== "manual" ? 400 : allowed ? 200 : 409;
+      assert.equal(response.status, expected, `mode=${mode}, source=${source}`);
+      assert.equal(reads - before, allowed ? 1 : 0, "rejected sources must not start reconciliation");
+      if (allowed) assert.equal((await response.json() as { automaticDispatchEnabled: boolean }).automaticDispatchEnabled, false);
+    }
+  }
+});
+
+test("native scheduler fails visibly when App or durable state is missing", async () => {
+  await assert.rejects(createWorker(new MemoryStateStore()).scheduled({}, env), /GitHub App not configured/);
+  const dependencies = { githubClientFactory: { async forInstallation(): Promise<GitHubClient> { throw new Error("unused"); } } };
+  await assert.rejects(createWorker(undefined, dependencies).scheduled({}, env), /Database not configured/);
+});
+
+test("selectable scheduler workflow gates events, serializes calls and detects HTTP/partial failures", async () => {
   const workflow = await readFile(new URL("../../.github/workflows/bot-reconcile.yml", import.meta.url), "utf8");
   const config = await readFile(new URL("../../apps/github-bot/wrangler.jsonc", import.meta.url), "utf8");
   assert.match(config, /"crons": \["\*\/5 \* \* \* \*"\]/);
   assert.match(config, /"AUTO_DISPATCH_ENABLED": "false"/);
+  assert.match(config, /"SCHEDULER_MODE": "cloudflare"/);
   assert.match(workflow, /^  workflow_dispatch:/m);
-  assert.doesNotMatch(workflow, /^  schedule:/m);
+  assert.match(workflow, /^  schedule:/m);
+  assert.match(workflow, /cron: '3-58\/5 \* \* \* \*'/);
   assert.match(workflow, /permissions: \{\}/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /group: flareport-bot-reconcile/);
   assert.match(workflow, /environment: flareport-scheduler/);
   assert.match(workflow, /github\.event\.repository\.default_branch/);
-  assert.match(workflow, /FLAREPORT_BOT_SCHEDULER_ENABLED == 'true'/);
+  assert.match(workflow, /FLAREPORT_BOT_SCHEDULER_MODE/);
+  assert.doesNotMatch(workflow, /FLAREPORT_BOT_SCHEDULER_ENABLED/);
   assert.doesNotMatch(workflow, /uses:|pull_request:|pull_request_target:|ADMIN_TOKEN|ARTIFACT_TOKEN|PRIVATE_KEY|contents: write/);
+  const condition = workflow.match(/    if: >-\n([\s\S]*?)\n    runs-on:/)![1]!;
+  for (const mode of ["", "cloudflare", "github", "manual", "invalid"]) {
+    for (const event of ["schedule", "workflow_dispatch", "push", "pull_request"]) {
+      for (const branch of ["main", "untrusted"]) {
+        const allowed = runInNewContext(condition, {
+          vars: { FLAREPORT_BOT_SCHEDULER_MODE: mode, FLAREPORT_BOT_SCHEDULER_ENABLED: "true" },
+          github: { event_name: event, ref: `refs/heads/${branch}`, event: { repository: { default_branch: "main" } } },
+          format: (pattern: string, value: string) => pattern.replace("{0}", value),
+        });
+        assert.equal(allowed, branch === "main" && ((mode === "github" && ["schedule", "workflow_dispatch"].includes(event))
+          || (mode === "manual" && event === "workflow_dispatch")), `mode=${mode}, event=${event}, branch=${branch}`);
+      }
+    }
+  }
+  const sourceExpression = workflow.match(/FLAREPORT_TRIGGER: \$\{\{ (.*?) \}\}/)![1]!;
+  for (const event of ["schedule", "workflow_dispatch"]) {
+    assert.equal(runInNewContext(sourceExpression, { github: { event_name: event } }), event === "schedule" ? "github-schedule" : "manual");
+  }
   const script = workflow.split("<<'NODE'\n")[1]!.split("\n          NODE")[0]!;
   let calls = 0;
-  const execute = (origin = "https://bot.test", token = "scheduler-secret", status = 200, ok = true) => runInNewContext(`(async () => {${script}\n})()`, {
-    URL, AbortSignal, process: { env: { FLAREPORT_BOT_URL: origin, FLAREPORT_SCHEDULER_TOKEN: token } }, console: { log() {} },
+  const execute = (origin = "https://bot.test", token = "scheduler-secret", status = 200, ok = true, source = "manual") => runInNewContext(`(async () => {${script}\n})()`, {
+    URL, AbortSignal, process: { env: { FLAREPORT_BOT_URL: origin, FLAREPORT_SCHEDULER_TOKEN: token, FLAREPORT_TRIGGER: source } }, console: { log() {} },
     async fetch(url: URL, init: RequestInit) {
       calls++;
       assert.equal(url.href, "https://bot.test/api/scheduler/reconcile");
       assert.equal(init.method, "POST"); assert.equal(init.redirect, "error");
       assert.equal(new Headers(init.headers).get("authorization"), "Bearer scheduler-secret");
+      assert.equal(new Headers(init.headers).get("x-flareport-trigger"), source);
       assert.ok(init.signal);
       return new Response(JSON.stringify({ ok, reconciliationFailures: 0, dispatchFailures: 0 }), { status });
     },
@@ -114,11 +175,13 @@ test("native Cron is the only default timer; manual recovery keeps its authentic
     await assert.rejects(execute(origin), /HTTPS origin/);
   }
   await assert.rejects(execute("https://bot.test", ""), /Missing scheduler token/);
+  await assert.rejects(execute("https://bot.test", "scheduler-secret", 200, true, "cloudflare"), /Invalid scheduler source/);
   assert.equal(calls, 0);
   await execute();
-  for (const status of [202, 302, 401, 502]) await assert.rejects(execute("https://bot.test", "scheduler-secret", status), /HTTP/);
+  await execute("https://bot.test", "scheduler-secret", 200, true, "github-schedule");
+  for (const status of [202, 302, 401, 409, 502, 503]) await assert.rejects(execute("https://bot.test", "scheduler-secret", status), /HTTP/);
   await assert.rejects(execute("https://bot.test", "scheduler-secret", 200, false), /did not complete/);
-  assert.equal(calls, 6, "no automatic HTTP retries after ambiguous failures");
+  assert.equal(calls, 9, "no automatic HTTP retries after ambiguous failures");
 });
 
 test("repository registration rejects unsafe coordinates and invalid policy identifiers", async () => {
