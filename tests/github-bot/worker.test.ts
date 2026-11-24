@@ -83,8 +83,13 @@ test("scheduler token is narrow, optional, POST-only, and fails closed without c
   assert.deepEqual(await failure.json(), { error: "reconciliation-failed" });
 });
 
-test("central scheduler workflow runs credential-free code, serializes calls and detects HTTP/partial failures", async () => {
+test("native Cron is the only default timer; manual recovery keeps its authentication and failure guards", async () => {
   const workflow = await readFile(new URL("../../.github/workflows/bot-reconcile.yml", import.meta.url), "utf8");
+  const config = await readFile(new URL("../../apps/github-bot/wrangler.jsonc", import.meta.url), "utf8");
+  assert.match(config, /"crons": \["\*\/5 \* \* \* \*"\]/);
+  assert.match(config, /"AUTO_DISPATCH_ENABLED": "false"/);
+  assert.match(workflow, /^  workflow_dispatch:/m);
+  assert.doesNotMatch(workflow, /^  schedule:/m);
   assert.match(workflow, /permissions: \{\}/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /group: flareport-bot-reconcile/);
