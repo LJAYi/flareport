@@ -72,7 +72,7 @@ jobs:
       - name: Fetch and verify the pinned upstream archive
         run: npm run prepare:upstream
       - name: Install and build the pinned upstream
-        run: npm run install:upstream && npm run build:upstream
+        run: npm run patch:upstream --if-present && npm run install:upstream && npm run build:upstream
       - name: Validate the Worker bundle without deploying
         run: npm run validate:cloudflare
 

@@ -28,6 +28,8 @@
 
 FlarePort is a **community-maintained, non-commercially operated collection of open-source deployment templates**. We bring together Cloudflare adapters, configuration guidance, and update paths for existing open-source projects, so you can start with a deploy button and run the services you like in your own account.
 
+Each application keeps its own license. The catalog also includes source-available releases with additional restrictions, explicitly identified below; FlarePort's MIT license does not remove those restrictions.
+
 **Upstream authors build the apps. FlarePort helps you deploy them. You own your services and data.**
 
 - **Start with a template**: create your deployment repository through the setup flow, without forking FlarePort or the upstream project.
@@ -45,7 +47,7 @@ There are currently **2 templates**. Both are community adaptations, not officia
 | Template | Purpose | Status | Deploy |
 | --- | --- | --- | --- |
 | **[NodeWarden](templates/nodewarden/README.md)** | A self-hosted, Bitwarden-compatible password manager | Available to try · Maintainer deployment verified | [![Deploy NodeWarden to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LJAYi/flareport/tree/main/templates/nodewarden) |
-| **[OpenConnector](templates/open-connector/README.md)** | An open-source authentication gateway connecting AI agents to third-party services | Experimental · New-version sync needs a fix | [![Deploy OpenConnector to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LJAYi/flareport/tree/main/templates/open-connector) |
+| **[OpenConnector](templates/open-connector/README.md)** | A self-hosted authentication gateway connecting AI agents to third-party services; source-available license | Experimental · v1.10.1 build validated; live verification pending | [![Deploy OpenConnector to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LJAYi/flareport/tree/main/templates/open-connector) |
 
 <details>
 <summary>Before deploying: resources, required secrets, and known limitations</summary>
@@ -55,7 +57,7 @@ There are currently **2 templates**. Both are community adaptations, not officia
 | NodeWarden | Workers, D1, R2, Durable Objects | `JWT_SECRET`: a cryptographically secure random value of at least 32 characters | [shuaiplus/nodewarden](https://github.com/shuaiplus/nodewarden) · [Pinned version](templates/nodewarden/UPSTREAM.md) |
 | OpenConnector | Workers, D1, R2 | `OOMOL_CONNECT_ADMIN_TOKEN`, `OOMOL_CONNECT_ENCRYPTION_KEY`: separately generated, long random values | [oomol-lab/open-connector](https://github.com/oomol-lab/open-connector) · [Pinned version](templates/open-connector/UPSTREAM.md) |
 
-OpenConnector's [new-version sync validation](https://github.com/LJAYi/flareport/actions/runs/45394775408) failed because the archive safety check rejected symbolic links in the source archive. That candidate was not published. The button above uses the template's currently pinned version; **it does not mean the latest upstream release is supported**. New users should start with NodeWarden.
+OpenConnector is pinned to **v1.10.1**, with the reviewed Cloudflare optimizations from `LJAYi/open-connector-cloudflare`. The archive compatibility issue is fixed without extracting symbolic links. Build and regression checks pass; a fresh deployment and Bot update are still being verified. This release uses the [OpenConnector License](templates/open-connector/licenses/open-connector/LICENSE.txt), **not unmodified Apache-2.0**, and restricts third-party hosted/managed connector services without OOMOL authorization. This template is for deployment in your own account, not a FlarePort-hosted connector service. It also uses one application Cron slot, separate from the Bot scheduler. Existing deployment repositories require a reviewed migration to adapter 0.1.7.
 
 Status checked on 2026-11-25. Maintainer deployment verification is not a full security audit and does not guarantee that every account, configuration, or future version will work without issues.
 
@@ -109,7 +111,7 @@ The maintainer can choose [Cloudflare Cron, GitHub Actions Cron, or manual trigg
 - [x] Pinned upstream commits, archive hash verification, template tests, and build-validation workflows.
 - [x] Upstream version discovery and manually reviewed PRs for public templates.
 - [x] Core Bot capabilities for update PRs, validation gates, rollout observations, and selectable reconciliation sources.
-- [ ] Fix adaptation of the newer OpenConnector source archive.
+- [x] Adapt OpenConnector v1.10.1 with reviewed Cloudflare optimizations and explicit license notices.
 - [ ] Open self-service Bot installation, repository registration, and update-policy configuration to third parties.
 - [ ] Verify a new user's complete journey from first deployment to first update.
 
@@ -156,7 +158,7 @@ Naming: **FlarePort** is the project display name; repositories, Workers, and co
 | Project and contributors | What they make possible | Upstream license information |
 | --- | --- | --- |
 | [NodeWarden](https://github.com/shuaiplus/nodewarden) · [shuaiplus](https://github.com/shuaiplus) and all contributors | A Bitwarden-compatible password management service running on Cloudflare Workers | [LGPL-3.0 attribution and source](templates/nodewarden/UPSTREAM.md) |
-| [OpenConnector](https://github.com/oomol-lab/open-connector) · [OOMOL Lab](https://github.com/oomol-lab) and all contributors | Open-source authentication and third-party service connections for AI agents | [Apache-2.0 attribution and source](templates/open-connector/UPSTREAM.md) |
+| [OpenConnector](https://github.com/oomol-lab/open-connector) · [OOMOL Lab](https://github.com/oomol-lab) and all contributors | Self-hosted authentication and third-party service connections for AI agents | [OpenConnector License, attribution and source](templates/open-connector/UPSTREAM.md) |
 | [Cloudflare](https://developers.cloudflare.com/) and [GitHub](https://github.com/) | Workers, deployment tools, code hosting, Actions, and the App platform | Each platform and tool has its own terms |
 
 Thanks also to everyone who reports issues, reviews PRs, tests templates, or improves the documentation. Together, we hope to help good projects reach more users, make self-hosting easier, and share adaptation knowledge with the next contributor.

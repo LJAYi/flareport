@@ -11,6 +11,12 @@ import { createGunzip } from "node:zlib";
 
 const execFile = promisify(execFileCallback);
 
+// These upstream documentation aliases are not needed at runtime. Never extract links.
+const ignoredDocumentationLinks = {
+  "CLAUDE.md": "AGENTS.md",
+  ".claude/skills/add-provider": "../../.codex/skills/add-provider",
+};
+
 export const ARCHIVE_LIMITS = Object.freeze({
   compressedBytes: 128 * 1024 * 1024,
   entries: 50_000,
@@ -18,11 +24,11 @@ export const ARCHIVE_LIMITS = Object.freeze({
 });
 
 function tarString(block, start, length) {
-  return block.subarray(start, start + length).toString("utf8").replace(/\0.*$/s, "").trim();
+  return block.subarray(start, start + length).toString("utf8").replace(/\0.*$/s, "");
 }
 
 function tarSize(block) {
-  const raw = tarString(block, 124, 12);
+  const raw = tarString(block, 124, 12).trim();
   if (!/^[0-7]+$/.test(raw)) throw new Error(`Invalid TAR size field: ${JSON.stringify(raw)}`);
   const size = Number.parseInt(raw, 8);
   if (!Number.isSafeInteger(size) || size < 0) throw new Error("Invalid TAR entry size");
@@ -58,6 +64,7 @@ export async function inspectTarGzip(archivePath, limits = ARCHIVE_LIMITS) {
   let entryCount = 0;
   let expandedBytes = 0;
   let inflatedBytes = 0;
+  const ignoredLinks = [];
   for await (const chunk of createReadStream(archivePath).pipe(createGunzip())) {
     inflatedBytes += chunk.length;
     if (inflatedBytes > limits.expandedBytes + limits.entries * 1024) {
@@ -88,13 +95,20 @@ export async function inspectTarGzip(archivePath, limits = ARCHIVE_LIMITS) {
       entryCount += 1;
       if (entryCount > limits.entries) throw new Error(`Upstream archive exceeds member limit of ${limits.entries}`);
       const type = header[156];
-      if (type !== 0 && type !== 0x30 && type !== 0x35 && type !== 0x67) {
-        throw new Error(`Unsupported TAR member type ${String.fromCharCode(type)}; links and special files are forbidden`);
-      }
       const name = tarString(header, 0, 100);
       const prefix = tarString(header, 345, 155);
-      assertSafeArchiveEntry(prefix ? `${prefix}/${name}` : name);
+      const path = prefix ? `${prefix}/${name}` : name;
+      assertSafeArchiveEntry(path);
       const size = tarSize(header);
+      const [archiveRoot, ...segments] = path.split("/");
+      const relativePath = segments.join("/");
+      if (type === 0x32 && size === 0 && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(archiveRoot) &&
+          Object.hasOwn(ignoredDocumentationLinks, relativePath) &&
+          tarString(header, 157, 100) === ignoredDocumentationLinks[relativePath]) {
+        ignoredLinks.push(path);
+      } else if (type !== 0 && type !== 0x30 && type !== 0x35 && type !== 0x67) {
+        throw new Error(`Unsupported TAR member type ${String.fromCharCode(type)}; links and special files are forbidden`);
+      }
       if (type === 0x35 && size !== 0) throw new Error("TAR directory entry must have zero size");
       expandedBytes += size;
       if (expandedBytes > limits.expandedBytes) {
@@ -106,7 +120,7 @@ export async function inspectTarGzip(archivePath, limits = ARCHIVE_LIMITS) {
   }
   if (entryCount === 0) throw new Error("Upstream archive is empty");
   if (payloadBytes !== 0 || paxBytes !== 0 || pending.length % 512 !== 0) throw new Error("Upstream archive is truncated");
-  return { entryCount, expandedBytes, compressedBytes: compressed.size };
+  return { entryCount, expandedBytes, compressedBytes: compressed.size, ignoredLinks };
 }
 
 function compressedByteLimiter(maximum) {
@@ -130,7 +144,7 @@ export async function extractVerifiedArchive({ archivePath, destination, expecte
   if (actualSha256 !== expectedSha256) {
     throw new Error(`Upstream archive SHA-256 mismatch: expected ${expectedSha256}, got ${actualSha256}`);
   }
-  await inspectTarGzip(archivePath, limits);
+  const { ignoredLinks } = await inspectTarGzip(archivePath, limits);
   await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });
   await execFile("tar", [
@@ -141,6 +155,7 @@ export async function extractVerifiedArchive({ archivePath, destination, expecte
     "--strip-components=1",
     "--no-same-owner",
     "--no-same-permissions",
+    ...ignoredLinks.map((path) => `--exclude=${path}`),
   ]);
 }
 

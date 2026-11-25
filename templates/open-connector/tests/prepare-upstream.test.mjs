@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,6 +12,38 @@ const execFile = promisify(execFileCallback);
 
 test("rejects archive traversal", () => {
   assert.throws(() => assertSafeArchiveEntry("project/../escape"), /Unsafe archive entry/);
+});
+
+test("omits only reviewed documentation aliases and rejects changed targets", async () => {
+  const root = await mkdtemp(join(tmpdir(), "flareport-documentation-links-"));
+  try {
+    const source = join(root, "project");
+    await mkdir(join(source, ".claude/skills"), { recursive: true });
+    await writeFile(join(source, "AGENTS.md"), "documentation\n");
+    await symlink("AGENTS.md", join(source, "CLAUDE.md"));
+    await symlink("../../.codex/skills/add-provider", join(source, ".claude/skills/add-provider"));
+    const archivePath = join(root, "fixture.tar.gz");
+    const destination = join(root, "output");
+    async function extract() {
+      await execFile("tar", ["--format=ustar", "-czf", archivePath, "-C", root, "project"]);
+      const expectedSha256 = createHash("sha256").update(await readFile(archivePath)).digest("hex");
+      return extractVerifiedArchive({ archivePath, destination, expectedSha256 });
+    }
+    await extract();
+    assert.equal(await readFile(join(destination, "AGENTS.md"), "utf8"), "documentation\n");
+    for (const path of ["CLAUDE.md", ".claude/skills/add-provider"]) {
+      await assert.rejects(lstat(join(destination, path)), { code: "ENOENT" });
+    }
+    await symlink("AGENTS.md", join(source, "CLAUDE.md "));
+    await assert.rejects(extract(), /links and special files are forbidden/);
+    await rm(join(source, "CLAUDE.md "));
+    await rm(join(source, "CLAUDE.md"));
+    await symlink("../../outside", join(source, "CLAUDE.md"));
+    await assert.rejects(extract(), /links and special files are forbidden/);
+    assert.equal(await readFile(join(destination, "AGENTS.md"), "utf8"), "documentation\n", "invalid archives must not replace the previous tree");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("verifies and safely extracts a local archive fixture", async () => {

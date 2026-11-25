@@ -1,0 +1,348 @@
+diff --git a/.gitignore b/.gitignore
+index db68c779..06c45a42 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -7,6 +7,7 @@ coverage/
+ catalog/
+ src/providers/registry*.generated.ts
+ src/providers/action-contracts.generated.ts
++src/providers/catalog.cloudflare.generated.ts
+ .env
+ .env.*
+ !.env.example
+diff --git a/scripts/copy-catalog-assets.test.ts b/scripts/copy-catalog-assets.test.ts
+index 70fa4b3d..f9c44180 100644
+--- a/scripts/copy-catalog-assets.test.ts
++++ b/scripts/copy-catalog-assets.test.ts
+@@ -36,7 +36,7 @@ describe("copyCatalogAssets", () => {
+     for (const chunk of index.chunks) {
+       expect(Buffer.byteLength(await readFile(join(targetDir, chunk), "utf8"))).toBeLessThanOrEqual(45);
+     }
+-    expect((await readdir(targetDir)).sort()).toEqual(["apps-0000.json", "apps-0001.json", "index.json"]);
++    expect((await readdir(targetDir)).sort()).toEqual(["apps-0000.json", "apps-0001.json", "index.json", "providers"]);
+   });
+ 
+   // Production chunks hold ~170 providers each, so the greedy fill and its separator accounting —
+@@ -66,7 +66,8 @@ describe("copyCatalogAssets", () => {
+ 
+     await copyCatalogAssets({ sourceDir, targetDir });
+ 
+-    expect((await readdir(targetDir)).sort()).toEqual(["apps-0000.json", "index.json"]);
++    expect((await readdir(targetDir)).sort()).toEqual(["apps-0000.json", "index.json", "providers"]);
++    expect(JSON.parse(await readFile(join(targetDir, "providers/alpha.json"), "utf8"))).toEqual({ service: "alpha" });
+   });
+ 
+   it("accounts for UTF-8 bytes when rejecting an oversized provider", async () => {
+@@ -94,7 +95,7 @@ describe("copyCatalogAssets", () => {
+     const index = await copyCatalogAssets({ sourceDir, targetDir });
+ 
+     expect(index).toEqual({ version: 1, providerCount: 0, chunks: [] });
+-    expect(await readdir(targetDir)).toEqual(["index.json"]);
++    expect((await readdir(targetDir)).sort()).toEqual(["index.json", "providers"]);
+   });
+ 
+   // The index shape and the `apps-NNNN.json` naming are declared once here and once in the worker
+diff --git a/scripts/copy-catalog-assets.ts b/scripts/copy-catalog-assets.ts
+index cbd4ad89..418ab2af 100644
+--- a/scripts/copy-catalog-assets.ts
++++ b/scripts/copy-catalog-assets.ts
+@@ -42,6 +42,7 @@ export async function copyCatalogAssets(options: CopyCatalogAssetsOptions): Prom
+ 
+   await rm(options.targetDir, { recursive: true, force: true });
+   await mkdir(options.targetDir, { recursive: true });
++  await mkdir(join(options.targetDir, "providers"), { recursive: true });
+ 
+   const chunkNames = chunks.map((_, index) => `apps-${index.toString().padStart(4, "0")}.json`);
+   const index: CatalogAssetIndex = {
+@@ -51,6 +52,7 @@ export async function copyCatalogAssets(options: CopyCatalogAssetsOptions): Prom
+   };
+ 
+   await Promise.all([
++    ...providers.map((provider) => writeFile(join(options.targetDir, "providers", provider.filename), provider.json)),
+     writeFile(join(options.targetDir, "index.json"), `${JSON.stringify(index)}\n`),
+     ...chunks.map((chunk, index) => writeFile(join(options.targetDir, chunkNames[index]!), chunk)),
+   ]);
+diff --git a/scripts/ensure-generated.ts b/scripts/ensure-generated.ts
+index c39872b5..6d86423f 100644
+--- a/scripts/ensure-generated.ts
++++ b/scripts/ensure-generated.ts
+@@ -8,6 +8,7 @@ const generatedPaths = [
+   join(process.cwd(), "src/providers/registry.generated.ts"),
+   join(process.cwd(), "src/providers/registry.cloudflare.generated.ts"),
+   join(process.cwd(), "src/providers/action-contracts.generated.ts"),
++  join(process.cwd(), "src/providers/catalog.cloudflare.generated.ts"),
+ ];
+ const catalogDir = join(process.cwd(), "catalog/apps");
+ const catalogIndexFile = join(process.cwd(), "catalog", catalogIndexFileName);
+@@ -27,7 +28,7 @@ const [generatedFilesPresent, catalogFresh] = await Promise.all([
+   isFreshCatalog(sourceMtimeMs),
+ ]);
+ // A fresh catalog proves all generated provider files were produced from the same source set.
+-if (!catalogFresh) {
++if (!catalogFresh || !generatedFilesPresent[3]) {
+   runNodeScript("scripts/generate-catalog.ts");
+ } else if (generatedFilesPresent.some((present) => !present)) {
+   runNodeScript("scripts/generate-provider-registry.ts");
+diff --git a/scripts/generate-catalog.ts b/scripts/generate-catalog.ts
+index 96263fd6..db8ac8c9 100644
+--- a/scripts/generate-catalog.ts
++++ b/scripts/generate-catalog.ts
+@@ -21,6 +21,14 @@ await generateProviderRegistries(providerSources);
+ const providers = providerSources.map((source) => source.definition);
+ const apps = sortProviders(providers);
+ validateCatalogTranslations(apps);
++const metadata = apps.map((provider) => ({
++  ...provider,
++  actions: provider.actions.map(({ inputSchema: _input, outputSchema: _output, ...action }) => action),
++}));
++await writeFile(
++  join(process.cwd(), "src/providers/catalog.cloudflare.generated.ts"),
++  `import type { CatalogProviderMetadata } from "../catalog-store.ts";\nexport const providers: CatalogProviderMetadata[] = JSON.parse(${JSON.stringify(JSON.stringify(metadata))});\n`,
++);
+ 
+ await mkdir(catalogRootDir, { recursive: true });
+ 
+diff --git a/src/server/cloudflare.test.ts b/src/server/cloudflare.test.ts
+index fdb7a005..3e3a33a3 100644
+--- a/src/server/cloudflare.test.ts
++++ b/src/server/cloudflare.test.ts
+@@ -17,6 +17,11 @@ import { createWorkerSecretCodec } from "./secrets/worker-secret-codec.ts";
+ import { D1RuntimeDatabase } from "./storage/d1/runtime-store.ts";
+ import { SqliteD1Database } from "./storage/d1/test-database.ts";
+ 
++vi.mock("./cloudflare/catalog-startup.ts", async () => {
++  const { loadCatalogFromAssets } = await import("./cloudflare/catalog-assets.ts");
++  return { bindStartupCatalog: loadCatalogFromAssets };
++});
++
+ const provider = {
+   service: "example",
+   displayName: "Example",
+diff --git a/src/server/cloudflare.ts b/src/server/cloudflare.ts
+index e196e063..cd486fbe 100644
+--- a/src/server/cloudflare.ts
++++ b/src/server/cloudflare.ts
+@@ -15,7 +15,8 @@ import { executorModules } from "../providers/registry.cloudflare.generated.ts";
+ import { SaasCleanupService } from "../saas/saas-cleanup-service.ts";
+ import { isConsoleShellPath } from "./api/console-paths.ts";
+ import { DEFAULT_OAUTH_CLOSE_DELAY_SECONDS, parseOAuthResultOrigins } from "./api/oauth-completion-page.ts";
+-import { loadCatalogFromAssets } from "./cloudflare/catalog-assets.ts";
++import { withCatalogAssetScope } from "./cloudflare/bundled-catalog.ts";
++import { bindStartupCatalog } from "./cloudflare/catalog-startup.ts";
+ import { readNonNegativeInteger, readPositiveInteger, resolvePublicOrigin } from "./cloudflare/cloudflare-env.ts";
+ import { createConnectApp } from "./connect-app.ts";
+ import { preloadOptionalServerModules } from "./connect-server.ts";
+@@ -83,6 +84,10 @@ export default {
+ };
+ 
+ async function fetchRuntime(request: Request, env: CloudflareEnv): Promise<Response> {
++  return withCatalogAssetScope(() => fetchRuntimeInScope(request, env));
++}
++
++async function fetchRuntimeInScope(request: Request, env: CloudflareEnv): Promise<Response> {
+   const publicOrigin = resolvePublicOrigin(request, env);
+   const { app } = await appCache.get(createCacheKey(env, publicOrigin), () => createCloudflareApp(env, publicOrigin));
+   const response = await app.fetch(request, env);
+@@ -192,11 +197,7 @@ function writeWorkerLog(level: "error" | "info" | "warn"): (fields: unknown, mes
+ function loadCatalogOnce(assets: AssetsBinding): Promise<CatalogStore> {
+   // The catalog depends only on the assets binding, which is fixed for the isolate, so one slot
+   // under a constant key covers every request.
+-  return catalogCache.get("", () =>
+-    loadCatalogFromAssets(assets, {
+-      executableServices: Object.keys(executorModules),
+-    }),
+-  );
++  return catalogCache.get("", async () => bindStartupCatalog(assets));
+ }
+ 
+ function createSecretCodec(encryptionKey: string | undefined): Promise<ISecretCodec> {
+diff --git a/src/server/cloudflare/bundled-catalog.test.ts b/src/server/cloudflare/bundled-catalog.test.ts
+new file mode 100644
+index 00000000..852b99c5
+--- /dev/null
++++ b/src/server/cloudflare/bundled-catalog.test.ts
+@@ -0,0 +1,91 @@
++import type { ProviderDefinition } from "../../core/types.ts";
++
++import { describe, expect, it } from "vitest";
++import { createCatalogStore } from "../../catalog-store.ts";
++import { prepareBundledCatalog, withCatalogAssetScope } from "./bundled-catalog.ts";
++
++const provider: ProviderDefinition = {
++  service: "example",
++  displayName: "Example",
++  categories: ["Developer Tools"],
++  authTypes: ["no_auth"],
++  auth: [{ type: "no_auth" }],
++  actions: [
++    {
++      id: "example.ping",
++      service: "example",
++      name: "ping",
++      operationType: "read",
++      description: "Ping",
++      requiredScopes: [],
++      providerPermissions: [],
++      inputSchema: { type: "object" },
++      outputSchema: {},
++    },
++  ],
++};
++
++describe("bundled Cloudflare catalog", () => {
++  it("coalesces concurrent details within one request without sharing pending reads across requests", async () => {
++    let attempts = 0;
++    const catalog = prepareBundledCatalog(
++      [provider],
++      {},
++    )({
++      fetch: async () => {
++        attempts++;
++        return Response.json(provider);
++      },
++    });
++    await Promise.all(
++      [1, 2].map(() =>
++        withCatalogAssetScope(async () => {
++          await Promise.all(Array.from({ length: 60 }, () => catalog.getAction("example.ping")));
++        }),
++      ),
++    );
++    expect(attempts).toBe(2);
++  });
++  it("prepares both list locales without asset reads and loads schemas only on explicit detail requests", async () => {
++    const metadata = [
++      {
++        ...provider,
++        actions: provider.actions.map(({ inputSchema: _input, outputSchema: _output, ...action }) => action),
++      },
++    ];
++    const options = { executableActionIds: ["example.ping"] };
++    const bind = prepareBundledCatalog(metadata, options);
++    const reads: string[] = [];
++    const catalog = bind({
++      fetch: async (request) => {
++        reads.push(new URL(request.url).pathname);
++        return Response.json(provider);
++      },
++    });
++    const eager = createCatalogStore([provider], options);
++    for (const locale of ["en", "zh-CN"] as const) {
++      expect(catalog.getProviderDisplay(locale)).toEqual(eager.getProviderDisplay(locale));
++    }
++    expect(reads).toEqual([]);
++    expect(await catalog.getAction("missing.ping")).toBeUndefined();
++    expect(await catalog.getAction("example.ping")).toEqual(await eager.getAction("example.ping"));
++    await catalog.getAction("example.ping");
++    expect(reads).toEqual(["/catalog/providers/example.json"]);
++  });
++
++  it("retries failed asset reads instead of caching a rejected promise", async () => {
++    let attempts = 0;
++    const catalog = prepareBundledCatalog(
++      [provider],
++      {},
++    )({
++      fetch: async () => {
++        if (++attempts === 1) return new Response("unavailable", { status: 503 });
++        return Response.json(provider);
++      },
++    });
++    await expect(catalog.getAction("example.ping")).rejects.toThrow("returned 503");
++    expect((await catalog.getAction("example.ping"))?.inputSchema).toEqual({ type: "object" });
++    expect(attempts).toBe(2);
++  });
++});
+diff --git a/src/server/cloudflare/bundled-catalog.ts b/src/server/cloudflare/bundled-catalog.ts
+new file mode 100644
+index 00000000..55836bf3
+--- /dev/null
++++ b/src/server/cloudflare/bundled-catalog.ts
+@@ -0,0 +1,61 @@
++import type { CatalogProviderMetadata, CatalogStore, ExecutableActionOptions } from "../../catalog-store.ts";
++import type { ProviderDefinition } from "../../core/types.ts";
++import type { AssetsBinding } from "./cloudflare-bindings.ts";
++
++import { AsyncLocalStorage } from "node:async_hooks";
++import { createCatalogFromMetadata, resolveExecutableActionIds } from "../../catalog-store.ts";
++import { readJsonAsset } from "./catalog-assets.ts";
++
++const requestReads = new AsyncLocalStorage<Map<string, Promise<unknown>>>();
++
++/** Coalesce schema reads only within one request, never across request lifetimes. */
++export function withCatalogAssetScope<T>(run: () => Promise<T>): Promise<T> {
++  return requestReads.run(new Map(), run);
++}
++
++/** Prepare immutable list data during isolate startup, not within a Free-plan request's CPU budget. */
++export function prepareBundledCatalog(
++  providers: CatalogProviderMetadata[],
++  options: ExecutableActionOptions,
++): (assets: AssetsBinding) => CatalogStore {
++  const prepared = createCatalogFromMetadata(
++    providers,
++    async () => {
++      throw new Error("Action schemas require an assets binding");
++    },
++    { executableActionIds: resolveExecutableActionIds(providers, options) },
++  );
++  prepared.getProviderDisplay("zh-CN");
++
++  return (assets) => {
++    // Cache settled data only: an interrupted request must not strand other requests on its promise.
++    const cache = new Map<string, ProviderDefinition>();
++    return {
++      ...prepared,
++      async getAction(id) {
++        const summary = prepared.actionsById.get(id);
++        if (!summary) return undefined;
++        const service = summary.service;
++        let provider = cache.get(service);
++        if (!provider) {
++          const reads = requestReads.getStore();
++          let pending = reads?.get(service);
++          if (!pending) {
++            pending = readJsonAsset(assets, `/catalog/providers/${encodeURIComponent(service)}.json`);
++            reads?.set(service, pending);
++          }
++          provider = (await pending) as ProviderDefinition;
++          if (provider.service !== service || !Array.isArray(provider.actions)) {
++            throw new Error(`Invalid catalog provider asset: ${service}`);
++          }
++        }
++        cache.delete(service);
++        cache.set(service, provider);
++        if (cache.size > 64) cache.delete(cache.keys().next().value!);
++        const action = provider.actions.find((action) => action.id === id);
++        if (!action) throw new Error(`Catalog action ${id} is missing from ${service}`);
++        return { ...action, ...summary };
++      },
++    };
++  };
++}
+diff --git a/src/server/cloudflare/catalog-assets.ts b/src/server/cloudflare/catalog-assets.ts
+index 7d379a43..61b92408 100644
+--- a/src/server/cloudflare/catalog-assets.ts
++++ b/src/server/cloudflare/catalog-assets.ts
+@@ -92,7 +92,7 @@ function requireProviderArray(value: unknown, path: string): ProviderDefinition[
+  * therefore detected by the response content type as well as by the status, otherwise the SPA shell
+  * would be parsed as catalog JSON.
+  */
+-async function readJsonAsset(assets: AssetsBinding, path: string): Promise<unknown> {
++export async function readJsonAsset(assets: AssetsBinding, path: string): Promise<unknown> {
+   const response = await fetchAsset(assets, path);
+   if (response.status === 404) {
+     throw assetRequestError(path, "returned 404");
+diff --git a/src/server/cloudflare/catalog-startup.ts b/src/server/cloudflare/catalog-startup.ts
+new file mode 100644
+index 00000000..c9da7865
+--- /dev/null
++++ b/src/server/cloudflare/catalog-startup.ts
+@@ -0,0 +1,7 @@
++import { providers } from "../../providers/catalog.cloudflare.generated.ts";
++import { executorModules } from "../../providers/registry.cloudflare.generated.ts";
++import { prepareBundledCatalog } from "./bundled-catalog.ts";
++
++export const bindStartupCatalog: ReturnType<typeof prepareBundledCatalog> = prepareBundledCatalog(providers, {
++  executableServices: Object.keys(executorModules),
++});

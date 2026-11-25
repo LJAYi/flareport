@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "adapter": {
     "id": "open-connector",
-    "version": "0.1.6"
+    "version": "0.1.7"
   },
   "upstream": {
     "repository": "oomol-lab/open-connector",
-    "release": "v1.3.4",
-    "commit": "ef9ef5b6cf1f8c15368f0a62fc2517780aebc12a",
-    "archiveUrl": "https://github.com/oomol-lab/open-connector/archive/ef9ef5b6cf1f8c15368f0a62fc2517780aebc12a.tar.gz",
-    "archiveSha256": "fab962a043d989fa6d3231c4a5f733513eabd8516da377789d07ae6b2253535a"
+    "release": "v1.10.1",
+    "commit": "d3ecfdd8bed43ee83f04bf04ec69fb50e25ddc62",
+    "archiveUrl": "https://github.com/oomol-lab/open-connector/archive/d3ecfdd8bed43ee83f04bf04ec69fb50e25ddc62.tar.gz",
+    "archiveSha256": "76f1b8a9624172dd18ca8a767af3c26109459cff2f799a48bb0bda96346f0be2"
   },
-  "generatedAt": "2026-08-05T00:00:00.000Z"
+  "generatedAt": "2026-11-20T05:48:08Z"
 }
