@@ -3,14 +3,18 @@
   "name": "open-connector",
   "main": ".flareport/upstream/src/server/cloudflare.ts",
   "compatibility_date": "2026-07-02",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "upload_source_maps": false,
   "keep_vars": true,
+  "cache": { "enabled": true },
   "assets": {
     "directory": ".flareport/upstream/dist/web",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/v1/*", "/mcp*", "/oauth/*", "/docs", "/docs/*", "/openapi.json", "/health"]
+    "run_worker_first": ["/.well-known/*", "/api/*", "/v1/*", "/mcp*", "/oauth/*", "/docs", "/docs/*", "/openapi.json", "/health"]
   },
+  "triggers": { "crons": ["* * * * *"] },
+  "observability": { "enabled": true },
   "d1_databases": [
     {
       "binding": "DB",
@@ -20,8 +24,7 @@
   ],
   "r2_buckets": [
     {
-      "binding": "TRANSIT_FILES",
-      "bucket_name": "open-connector-transit-files"
+      "binding": "TRANSIT_FILES"
     }
   ]
 }

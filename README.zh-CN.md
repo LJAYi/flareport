@@ -28,6 +28,8 @@
 
 FlarePort 是一个**社区维护、非商业运营的开源部署模板集**。我们为已有的开源项目整理 Cloudflare 适配、配置说明和更新路径，让你从一个部署按钮开始，在自己的账号里运行喜欢的服务。
 
+各应用保留自己的许可证。目录也收录带附加限制的源码可用版本，并在下方明确标注；FlarePort 的 MIT 许可证不会消除这些限制。
+
 **上游创造应用，FlarePort 连接部署，你掌握自己的服务与数据。**
 
 - **从模板开始**：无需 Fork FlarePort 或上游项目，按向导生成自己的部署仓库。
@@ -45,7 +47,7 @@ FlarePort 是一个**社区维护、非商业运营的开源部署模板集**。
 | 模板 | 用途 | 状态 | 部署入口 |
 | --- | --- | --- | --- |
 | **[NodeWarden](templates/nodewarden/README.md)** | 兼容 Bitwarden 的自托管密码管理服务 | 可试用 · 已完成维护者部署验证 | [![Deploy NodeWarden to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LJAYi/flareport/tree/main/templates/nodewarden) |
-| **[OpenConnector](templates/open-connector/README.md)** | 为 AI Agent 连接第三方服务的开源认证网关 | 试验性 · 新版同步待修复 | [![Deploy OpenConnector to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LJAYi/flareport/tree/main/templates/open-connector) |
+| **[OpenConnector](templates/open-connector/README.md)** | 为 AI Agent 连接第三方服务的自托管认证网关；源码可用许可 | 试验性 · v1.10.1 构建已验证，在线验收待完成 | [![Deploy OpenConnector to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LJAYi/flareport/tree/main/templates/open-connector) |
 
 <details>
 <summary>部署前：查看资源、必填密钥与已知限制</summary>
@@ -55,7 +57,7 @@ FlarePort 是一个**社区维护、非商业运营的开源部署模板集**。
 | NodeWarden | Workers、D1、R2、Durable Objects | `JWT_SECRET`：至少 32 字符的安全随机值 | [shuaiplus/nodewarden](https://github.com/shuaiplus/nodewarden) · [锁定版本](templates/nodewarden/UPSTREAM.md) |
 | OpenConnector | Workers、D1、R2 | `OOMOL_CONNECT_ADMIN_TOKEN`、`OOMOL_CONNECT_ENCRYPTION_KEY`：分别生成的长随机值 | [oomol-lab/open-connector](https://github.com/oomol-lab/open-connector) · [锁定版本](templates/open-connector/UPSTREAM.md) |
 
-OpenConnector 的[新版同步验证](https://github.com/LJAYi/flareport/actions/runs/45394775408)因源码归档中的符号链接被安全校验拒绝而未通过，候选版本未发布。上面的按钮使用模板当前锁定的版本，**不代表已经支持上游最新版**；新用户建议先从 NodeWarden 体验。
+OpenConnector 已锁定 **v1.10.1**，复用 `LJAYi/open-connector-cloudflare` 中经过审查的 Cloudflare 优化。源码归档兼容问题已修复，且不解压符号链接；构建与回归测试已通过，全新部署和 Bot 更新仍在验收。此版本使用 [OpenConnector License](templates/open-connector/licenses/open-connector/LICENSE.txt)，**不是纯 Apache-2.0**，限制未经 OOMOL 授权向第三方提供托管连接器服务。模板面向用户在自己的账号中部署，FlarePort 不提供托管连接器服务。应用自身另需一个 Cron 配额，不与 Bot 调度器共用。已有部署仓库升级到适配器 0.1.7 需要单独审查迁移。
 
 状态核对日期：2026-11-25。维护者部署验证不等于完整安全审计，也不保证所有账号、配置或后续版本都没有问题。
 
@@ -109,7 +111,7 @@ Bot 的巡检可由 [Cloudflare Cron、GitHub Actions Cron 或手动触发](apps
 - [x] 上游提交锁定、归档哈希校验、模板测试与构建验证流程。
 - [x] 公共模板上游版本发现与人工审核 PR。
 - [x] Bot 更新 PR、校验门槛、灰度观察与可切换巡检来源的核心能力。
-- [ ] 修复 OpenConnector 新版源码归档的适配问题。
+- [x] 适配 OpenConnector v1.10.1，复用经过审查的 Cloudflare 优化并明确许可说明。
 - [ ] 开放第三方 Bot 安装、仓库登记与更新策略自助配置。
 - [ ] 完成陌生用户从部署到首次更新的全流程验收。
 
@@ -156,7 +158,7 @@ npm run catalog
 | 项目与贡献者 | 感谢他们带来的能力 | 上游许可说明 |
 | --- | --- | --- |
 | [NodeWarden](https://github.com/shuaiplus/nodewarden) · [shuaiplus](https://github.com/shuaiplus) 及所有贡献者 | 运行在 Cloudflare Workers 上、兼容 Bitwarden 的密码管理服务 | [LGPL-3.0 署名与来源](templates/nodewarden/UPSTREAM.md) |
-| [OpenConnector](https://github.com/oomol-lab/open-connector) · [OOMOL Lab](https://github.com/oomol-lab) 及所有贡献者 | 面向 AI Agent 的开源认证与第三方服务连接能力 | [Apache-2.0 署名与来源](templates/open-connector/UPSTREAM.md) |
+| [OpenConnector](https://github.com/oomol-lab/open-connector) · [OOMOL Lab](https://github.com/oomol-lab) 及所有贡献者 | 面向 AI Agent 的自托管认证与第三方服务连接能力 | [OpenConnector License、署名与来源](templates/open-connector/UPSTREAM.md) |
 | [Cloudflare](https://developers.cloudflare.com/) 与 [GitHub](https://github.com/) | Workers、部署工具、代码托管、Actions 与 App 平台 | 各平台及工具遵循自己的条款 |
 
 也感谢每一位提交 Issue、审阅 PR、测试模板和改进文档的参与者。让好项目获得更多用户与反馈，让自托管更容易，让适配经验可以被下一位贡献者复用——这是我们希望一起实现的事情。

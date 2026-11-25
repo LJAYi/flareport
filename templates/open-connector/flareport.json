@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "adapter": {
     "id": "open-connector",
-    "version": "0.1.6"
+    "version": "0.1.7"
   },
   "upstream": {
     "repository": "oomol-lab/open-connector",
-    "release": "v1.3.4",
-    "commit": "ef9ef5b6cf1f8c15368f0a62fc2517780aebc12a",
-    "archiveSha256": "fab962a043d989fa6d3231c4a5f733513eabd8516da377789d07ae6b2253535a"
+    "release": "v1.10.1",
+    "commit": "d3ecfdd8bed43ee83f04bf04ec69fb50e25ddc62",
+    "archiveSha256": "76f1b8a9624172dd18ca8a767af3c26109459cff2f799a48bb0bda96346f0be2"
   },
   "management": {
     "mode": "github-actions",
@@ -25,9 +25,17 @@
     "flareport.json",
     "flareport.user.example.json",
     "package.json",
+    "licenses/open-connector/LICENSE.txt",
+    "licenses/open-connector/LICENSE-APACHE-2.0.txt",
+    "licenses/open-connector/NOTICE.md",
+    "patches/cloudflare-catalog.patch",
+    "scripts/apply-cloudflare-overlay.mjs",
+    "scripts/configure-existing-resources.mjs",
     "scripts/copy-catalog-assets.mjs",
     "scripts/prepare-upstream.mjs",
     "scripts/validate-cloudflare.mjs",
+    "tests/cloudflare-config.test.mjs",
+    "tests/cloudflare-overlay.test.mjs",
     "tests/prepare-upstream.test.mjs",
     "tests/update-security.test.mjs",
     "upstream.lock.json",

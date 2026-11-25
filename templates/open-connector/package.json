@@ -1,19 +1,22 @@
 {
   "name": "flareport-open-connector-template",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": "^24.22.1 || >=26.12.1"
   },
   "scripts": {
     "test": "node --test",
     "prepare:upstream": "node scripts/prepare-upstream.mjs",
+    "patch:upstream": "node scripts/apply-cloudflare-overlay.mjs",
     "install:upstream": "npm ci --prefix .flareport/upstream",
     "build:upstream": "npm run generate:catalog --prefix .flareport/upstream && npm run build:web --prefix .flareport/upstream && node scripts/copy-catalog-assets.mjs",
-    "build": "npm run prepare:upstream && npm run install:upstream && npm run build:upstream",
-    "validate:cloudflare": "node scripts/validate-cloudflare.mjs",
-    "deploy": "npx --yes wrangler@4.114.0 d1 migrations apply DB --remote && npx --yes wrangler@4.114.0 deploy --minify"
+    "build": "npm run prepare:upstream && npm run patch:upstream && npm run install:upstream && npm run build:upstream",
+    "test:upstream": "npm test --prefix .flareport/upstream -- scripts/copy-catalog-assets.test.ts src/server/cloudflare/bundled-catalog.test.ts src/server/cloudflare.test.ts",
+    "validate:cloudflare": "npm run test:upstream && node scripts/validate-cloudflare.mjs",
+    "configure:cloudflare-resources": "node scripts/configure-existing-resources.mjs",
+    "deploy": "npm run configure:cloudflare-resources && npx --yes wrangler@4.149.0 d1 migrations apply DB --remote && npx --yes wrangler@4.149.0 deploy --minify"
   },
   "cloudflare": {
     "bindings": {

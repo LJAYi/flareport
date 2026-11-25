@@ -28,6 +28,8 @@
 
 FlarePort es una **colección de plantillas de despliegue de código abierto, mantenida por la comunidad y gestionada sin fines comerciales**. Reunimos adaptadores para Cloudflare, instrucciones de configuración y vías de actualización para proyectos de código abierto existentes, para que puedas empezar con un botón de despliegue y ejecutar tus servicios favoritos en tu propia cuenta.
 
+Cada aplicación conserva su propia licencia. El catálogo también incluye versiones de código disponible con restricciones adicionales, identificadas explícitamente abajo; la licencia MIT de FlarePort no elimina esas restricciones.
+
 **Los autores originales crean las aplicaciones. FlarePort te ayuda a desplegarlas. Tú conservas el control de tus servicios y datos.**
 
 - **Empieza con una plantilla**: crea tu repositorio de despliegue mediante el asistente, sin hacer un fork de FlarePort ni del proyecto original.
@@ -45,7 +47,7 @@ Actualmente hay **2 plantillas**. Ambas son adaptaciones de la comunidad, sin re
 | Plantilla | Finalidad | Estado | Desplegar |
 | --- | --- | --- | --- |
 | **[NodeWarden](templates/nodewarden/README.md)** | Gestor de contraseñas autoalojado compatible con Bitwarden | Disponible para probar · Despliegue verificado por el mantenedor | [![Desplegar NodeWarden en Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LJAYi/flareport/tree/main/templates/nodewarden) |
-| **[OpenConnector](templates/open-connector/README.md)** | Pasarela de autenticación de código abierto que conecta agentes de IA con servicios de terceros | Experimental · Pendiente de corregir la sincronización de nuevas versiones | [![Desplegar OpenConnector en Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LJAYi/flareport/tree/main/templates/open-connector) |
+| **[OpenConnector](templates/open-connector/README.md)** | Pasarela de autenticación autoalojada para agentes de IA y servicios de terceros; licencia de código disponible | Experimental · Compilación v1.10.1 validada; verificación en vivo pendiente | [![Desplegar OpenConnector en Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LJAYi/flareport/tree/main/templates/open-connector) |
 
 <details>
 <summary>Antes de desplegar: recursos, secretos obligatorios y limitaciones conocidas</summary>
@@ -55,7 +57,7 @@ Actualmente hay **2 plantillas**. Ambas son adaptaciones de la comunidad, sin re
 | NodeWarden | Workers, D1, R2, Durable Objects | `JWT_SECRET`: valor aleatorio criptográficamente seguro de al menos 32 caracteres | [shuaiplus/nodewarden](https://github.com/shuaiplus/nodewarden) · [Versión fijada](templates/nodewarden/UPSTREAM.md) |
 | OpenConnector | Workers, D1, R2 | `OOMOL_CONNECT_ADMIN_TOKEN`, `OOMOL_CONNECT_ENCRYPTION_KEY`: valores aleatorios largos generados por separado | [oomol-lab/open-connector](https://github.com/oomol-lab/open-connector) · [Versión fijada](templates/open-connector/UPSTREAM.md) |
 
-La [validación de sincronización de una nueva versión](https://github.com/LJAYi/flareport/actions/runs/45394775408) de OpenConnector falló porque la comprobación de seguridad rechazó enlaces simbólicos en el archivo de código fuente. Esa versión candidata no se publicó. El botón anterior utiliza la versión actualmente fijada en la plantilla; **no significa que la última versión del proyecto original sea compatible**. Recomendamos empezar con NodeWarden si eres un usuario nuevo.
+OpenConnector está fijado en **v1.10.1**, con las optimizaciones de Cloudflare revisadas de `LJAYi/open-connector-cloudflare`. La incompatibilidad del archivo se corrigió sin extraer enlaces simbólicos. Las comprobaciones de compilación y regresión pasan; el despliegue nuevo y la actualización del Bot siguen en verificación. Esta versión usa la [OpenConnector License](templates/open-connector/licenses/open-connector/LICENSE.txt), **no Apache-2.0 sin modificaciones**, y restringe los servicios de conectores alojados o gestionados para terceros sin autorización de OOMOL. La plantilla es para desplegar en tu propia cuenta, no un servicio de conectores alojado por FlarePort. La aplicación necesita su propio cupo Cron, separado del programador del Bot. Los repositorios existentes requieren una migración revisada al adaptador 0.1.7.
 
 Estado comprobado el 2026-11-25. La verificación del despliegue por parte del mantenedor no equivale a una auditoría de seguridad completa ni garantiza que todas las cuentas, configuraciones o versiones futuras funcionen sin problemas.
 
@@ -109,7 +111,7 @@ El mantenedor puede elegir [Cloudflare Cron, GitHub Actions Cron o la ejecución
 - [x] Commits originales fijados, verificación de hashes de archivos, pruebas de plantillas y flujos de validación de compilaciones.
 - [x] Detección de versiones originales y PR revisados manualmente para las plantillas públicas.
 - [x] Funciones centrales del Bot para PR de actualización, requisitos de validación, observaciones de despliegue y fuentes seleccionables de comprobaciones periódicas.
-- [ ] Corregir la adaptación del archivo de código fuente de la nueva versión de OpenConnector.
+- [x] Adaptar OpenConnector v1.10.1 con optimizaciones de Cloudflare revisadas y avisos de licencia explícitos.
 - [ ] Abrir a terceros la instalación del Bot, el registro de repositorios y la configuración de políticas de actualización sin asistencia del mantenedor.
 - [ ] Verificar el recorrido completo de un usuario nuevo, desde el primer despliegue hasta la primera actualización.
 
@@ -156,7 +158,7 @@ Nombres: **FlarePort** es el nombre visible del proyecto; los repositorios, Work
 | Proyecto y colaboradores | Lo que hacen posible | Información sobre la licencia original |
 | --- | --- | --- |
 | [NodeWarden](https://github.com/shuaiplus/nodewarden) · [shuaiplus](https://github.com/shuaiplus) y todos sus colaboradores | Un servicio de gestión de contraseñas compatible con Bitwarden que funciona en Cloudflare Workers | [Atribución y código fuente: LGPL-3.0](templates/nodewarden/UPSTREAM.md) |
-| [OpenConnector](https://github.com/oomol-lab/open-connector) · [OOMOL Lab](https://github.com/oomol-lab) y todos sus colaboradores | Autenticación de código abierto y conexiones con servicios de terceros para agentes de IA | [Atribución y código fuente: Apache-2.0](templates/open-connector/UPSTREAM.md) |
+| [OpenConnector](https://github.com/oomol-lab/open-connector) · [OOMOL Lab](https://github.com/oomol-lab) y todos sus colaboradores | Autenticación autoalojada y conexiones con servicios de terceros para agentes de IA | [OpenConnector License, atribución y código fuente](templates/open-connector/UPSTREAM.md) |
 | [Cloudflare](https://developers.cloudflare.com/) y [GitHub](https://github.com/) | Workers, herramientas de despliegue, alojamiento de código, Actions y la plataforma de Apps | Cada plataforma y herramienta tiene sus propias condiciones |
 
 Gracias también a quienes informan de problemas, revisan PR, prueban plantillas o mejoran la documentación. Juntos queremos ayudar a que los buenos proyectos lleguen a más usuarios, facilitar el autoalojamiento y compartir la experiencia de adaptación con el próximo colaborador.
